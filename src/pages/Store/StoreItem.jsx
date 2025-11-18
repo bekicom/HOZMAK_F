@@ -119,11 +119,7 @@ export default function StoreItem() {
       key: "modeli",
       render: (_, item) => item?.product_id?.model,
     },
-    {
-      title: "Brendi",
-      key: "brendi",
-      render: (_, item) => item?.product_id?.brand_name,
-    },
+   
     {
       title: "Miqdor",
       key: "quantity",

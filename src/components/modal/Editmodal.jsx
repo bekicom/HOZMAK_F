@@ -127,15 +127,7 @@ const EditProductModal = ({ visible, onCancel, product, usdRate, isStore }) => {
           </Col>
         </Row>
         <Row gutter={16}>
-          <Col span={12}>
-            <Form.Item
-              label="Brend nomi"
-              name="brand_name"
-              rules={[{ required: true, message: "Majburiy maydon!" }]}
-            >
-              <Input placeholder="Brend nomi" autoComplete="off" />
-            </Form.Item>
-          </Col>
+     
           <Col span={12}>
             <Form.Item
               label="O'lchov birligi"
@@ -150,16 +142,7 @@ const EditProductModal = ({ visible, onCancel, product, usdRate, isStore }) => {
           </Col>
         </Row>
  
-        <Row gutter={16}>
-          <Col span={24}>
-            <Form.Item label="Maxsus eslatmalar" name="special_notes">
-              <Input.TextArea
-                placeholder="Maxsus eslatmalar"
-                autoComplete="off"
-              />
-            </Form.Item>
-          </Col>
-        </Row>
+    
         <Form.Item>
           <Button type="primary" htmlType="submit" block>
             Saqlash

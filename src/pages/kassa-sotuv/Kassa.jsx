@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, useMemo, useCallback } from "react";
 import {
   Input,
   Table,
@@ -112,32 +112,30 @@ export default function Kassa() {
   const [masterModal, setMasterModal] = useState(false);
   const [chekBolimModal, setChekBolimModal] = useState(false);
 
-  const handlePrint = useReactToPrint({
-    content: () => receiptRef.current,
-    documentTitle: "new document",
-    pageStyle: "style",
-    onAfterPrint: () => {
-      setChekModal(false);
-      setSelectedProducts([]);
-    },
-  });
-
   const usdRate = usdRateData?.rate || 1;
 
-  const productSalesMap = {};
+  // convertPrice ni useMemo dan OLDIN e'lon qilish kerak
+  const convertPrice = useCallback((price, fromCurrency, toCurrency) => {
+    if (fromCurrency === toCurrency) return price;
+    if (fromCurrency === "usd" && toCurrency === "sum") return price * usdRate;
+    if (fromCurrency === "sum" && toCurrency === "usd") return price / usdRate;
+    return price;
+  }, [usdRate]);
 
-  sales?.forEach((sale) => {
-    const productId = sale.product_id?._id;
-    if (productId) {
-      if (!productSalesMap[productId]) {
-        productSalesMap[productId] = 0;
+  // Optimized useMemo for calculations
+  const productSalesMap = useMemo(() => {
+    const map = {};
+    sales?.forEach((sale) => {
+      const productId = sale.product_id?._id;
+      if (productId) {
+        map[productId] = (map[productId] || 0) + (sale.quantity || 0);
       }
-      productSalesMap[productId] += sale.quantity || 0;
-    }
-  });
+    });
+    return map;
+  }, [sales]);
 
-  const filteredProducts =
-    products
+  const filteredProducts = useMemo(() => {
+    return products
       ?.filter((product) => {
         if (!searchTerm) return true;
         const searchWords = searchTerm.toLowerCase().split(" ");
@@ -157,15 +155,25 @@ export default function Kassa() {
         const hasStoreStock = (storeProduct?.quantity || 0) > 0;
         return matchesSearch && hasStoreStock;
       })
-      // Qo‘shimcha: har bir mahsulotga sotilgan miqdorni biriktiramiz
       .map((product) => ({
         ...product,
         soldQuantity: productSalesMap[product._id] || 0,
       }))
-      // Sotilgan miqdor bo‘yicha kamayish tartibida saralash
       .sort((a, b) => b.soldQuantity - a.soldQuantity) || [];
+  }, [products, searchTerm, storeProducts, productSalesMap]);
 
-  const handleSelectProduct = (product) => {
+  const totalAmount = useMemo(() => {
+    return selectedProducts.reduce((acc, product) => {
+      const convertedPrice = convertPrice(
+        product.sell_price,
+        product.currency,
+        currency
+      );
+      return acc + convertedPrice * product.quantity;
+    }, 0);
+  }, [selectedProducts, currency, convertPrice]);
+
+  const handleSelectProduct = useCallback((product) => {
     const storeProduct = storeProducts?.find(
       (item) => item.product_id?._id === product._id
     );
@@ -178,19 +186,12 @@ export default function Kassa() {
     }
     const exists = selectedProducts?.find((item) => item._id === product._id);
     if (!exists) {
-      setSelectedProducts([
-        ...selectedProducts,
+      setSelectedProducts(prev => [
+        ...prev,
         {
           ...product,
           quantity: 1,
-          sell_price:
-            product.currency === currency
-              ? product.sell_price
-              : product.currency === "usd" && currency === "sum"
-              ? product.sell_price * usdRate
-              : product.currency === "sum" && currency === "usd"
-              ? product.sell_price / usdRate
-              : product.sell_price,
+          sell_price: convertPrice(product.sell_price, product.currency, currency),
           currency,
         },
       ]);
@@ -198,17 +199,14 @@ export default function Kassa() {
     } else {
       message.info("Bu mahsulot allaqachon tanlangan");
     }
-  };
+  }, [storeProducts, selectedProducts, currency, convertPrice]);
 
-  const handleRemoveProduct = (productId) => {
-    const updatedProducts = selectedProducts.filter(
-      (item) => item._id !== productId
-    );
-    setSelectedProducts(updatedProducts);
-  };
+  const handleRemoveProduct = useCallback((productId) => {
+    setSelectedProducts(prev => prev.filter((item) => item._id !== productId));
+  }, []);
 
-  const handleQuantityChange = (productId, increment) => {
-    const updatedProducts = selectedProducts.map((item) => {
+  const handleQuantityChange = useCallback((productId, increment) => {
+    setSelectedProducts(prev => prev.map((item) => {
       if (item._id === productId) {
         const isDecimal = ["litr", "sm"].includes(item.count_type);
         const step = isDecimal ? 0.1 : 1;
@@ -221,9 +219,8 @@ export default function Kassa() {
         };
       }
       return item;
-    });
-    setSelectedProducts(updatedProducts);
-  };
+    }));
+  }, []);
 
   const debouncedQuantityUpdate = useRef(
     debounce((productId, newQuantity) => {
@@ -246,15 +243,15 @@ export default function Kassa() {
     }, 400)
   ).current;
 
-  const handleQuantityInputChange = (productId, value) => {
+  const handleQuantityInputChange = useCallback((productId, value) => {
     const parsedValue = parseFloat(value);
     if (!isNaN(parsedValue)) {
       debouncedQuantityUpdate(productId, parsedValue);
     }
-  };
+  }, [debouncedQuantityUpdate]);
 
-  const handleSellPriceChange = (productId, newPrice) => {
-    const updatedProducts = selectedProducts.map((item) => {
+  const handleSellPriceChange = useCallback((productId, newPrice) => {
+    setSelectedProducts(prev => prev.map((item) => {
       if (item._id === productId) {
         const numericPrice = parseFloat(newPrice) || 0;
         return {
@@ -264,31 +261,34 @@ export default function Kassa() {
         };
       }
       return item;
-    });
-    setSelectedProducts(updatedProducts);
-  };
+    }));
+  }, [currency]);
 
-  const showModal = () => {
+  const showModal = useCallback(() => {
     setIsModalVisible(true);
-  };
+  }, []);
 
-  const handleCancel = () => {
+  const handleCancel = useCallback(() => {
     setIsModalVisible(false);
-  };
+  }, []);
 
+  // Optimized sale handler
   const handleSellProducts = async () => {
     setChekModal(true);
     try {
       const debtorProducts = [];
       let masterId = selectedMasterId;
+      
       if (masterId === "new" && newMasterName?.trim()) {
         const { result } = await createMaster({
           master_name: newMasterName,
         }).unwrap();
         masterId = result._id;
       }
+      
       let carId = null;
       const currentMaster = masters.find((m) => m._id === masterId);
+      
       if (paymentMethod === "master") {
         if (masterId && selectedCarName === "new" && newCarName?.trim()) {
           const { car } = await createCarToMaster({
@@ -303,42 +303,29 @@ export default function Kassa() {
           carId = car?._id;
         }
       }
+
       for (const product of selectedProducts) {
-        const sellPrice =
-          product.currency === currency
-            ? product.sell_price
-            : product.currency === "usd" && currency === "sum"
-            ? product.sell_price * usdRate
-            : product.currency === "sum" && currency === "usd"
-            ? product.sell_price / usdRate
-            : product.sell_price;
-        const buyPrice =
-          product.currency === currency
-            ? product.purchase_price
-            : product.currency === "usd" && currency === "sum"
-            ? product.purchase_price * usdRate
-            : product.currency === "sum" && currency === "usd"
-            ? product.purchase_price / usdRate
-            : product.purchase_price;
+        const sellPrice = convertPrice(product.sell_price, product.currency, currency);
+        const buyPrice = convertPrice(product.purchase_price, product.currency, currency);
+        
         if (location === "skalad") {
           if (product.stock < product.quantity) {
-            return message.error(
-              `${product.product_name} mahsuloti skaladda yetarli emas!`
-            );
+            message.error(`${product.product_name} mahsuloti skaladda yetarli emas!`);
+            return;
           }
           await updateProduct({
             id: product._id,
             stock: product.stock - product.quantity,
           }).unwrap();
         }
+        
         if (location === "dokon") {
           const storeProduct = storeProducts?.find(
             (p) => p.product_id?._id === product._id
           );
           if (!storeProduct || storeProduct.quantity < product.quantity) {
-            return message.error(
-              `${product.product_name} mahsuloti dokonda yetarli emas!`
-            );
+            message.error(`${product.product_name} mahsuloti dokonda yetarli emas!`);
+            return;
           }
           await sellProductFromStore({
             product_id: product._id,
@@ -354,14 +341,15 @@ export default function Kassa() {
           currency,
           quantity: product.quantity,
           total_price: sellPrice * product.quantity,
-          total_price_sum:
-            currency === "usd"
-              ? sellPrice * product.quantity * usdRate
-              : sellPrice * product.quantity,
+          total_price_sum: currency === "usd"
+            ? sellPrice * product.quantity * usdRate
+            : sellPrice * product.quantity,
         };
+
         if (paymentMethod === "master") {
           if (!masterId || !carId) {
-            return message.error("Usta yoki mashina aniqlanmadi");
+            message.error("Usta yoki mashina aniqlanmadi");
+            return;
           }
           await createSaleToCar({
             master_id: masterId,
@@ -383,11 +371,13 @@ export default function Kassa() {
           }).unwrap();
         }
       }
-      if (paymentMethod === "qarz") {
+
+      if (paymentMethod === "qarz" && debtorProducts.length > 0) {
         const totalDebt = debtorProducts.reduce(
           (acc, p) => acc + p.sell_price * p.quantity,
           0
         );
+        
         if (!selectedDebtor) {
           await createDebtor({
             name: debtorName?.trim(),
@@ -399,16 +389,18 @@ export default function Kassa() {
           }).unwrap();
         } else {
           const debtor = debtors.find((d) => d._id === selectedDebtor);
-          if (!debtor) return message.error("Tanlangan qarzdor topilmadi");
+          if (!debtor) {
+            message.error("Tanlangan qarzdor topilmadi");
+            return;
+          }
 
           for (const item of debtorProducts) {
             await updateQuantity({
               id: storeProducts.find(
                 (p) => p.product_id._id === item.product_id
               )._id,
-              quantity:
-                storeProducts.find((p) => p.product_id._id === item.product_id)
-                  .quantity - item.quantity,
+              quantity: storeProducts.find((p) => p.product_id._id === item.product_id)
+                .quantity - item.quantity,
             }).unwrap();
           }
 
@@ -428,8 +420,9 @@ export default function Kassa() {
           }).unwrap();
         }
       }
-      storeRefetch();
-      productRefetch();
+
+      await storeRefetch();
+      await productRefetch();
       message.success("Mahsulotlar muvaffaqiyatli sotildi!");
       setIsModalVisible(false);
     } catch (error) {
@@ -440,24 +433,236 @@ export default function Kassa() {
     }
   };
 
-  const convertPrice = (price, fromCurrency, toCurrency) => {
-    if (fromCurrency === toCurrency) return price;
-    if (fromCurrency === "usd" && toCurrency === "sum") return price * usdRate;
-    if (fromCurrency === "sum" && toCurrency === "usd") return price / usdRate;
-    return price;
-  };
+  // Optimized nasiya handler
+  const handleNasiyaSubmit = useCallback(async (e) => {
+    e.preventDefault();
+    const name = e.target.name.value;
+    const location = e.target.location.value;
+    
+    if (!name) {
+      message.error("Ismni to'ldiring!");
+      return;
+    }
+    if (!location) {
+      message.error("Joylashuvni to'ldiring!");
+      return;
+    }
+    
+    try {
+      for (const product of selectedProducts) {
+        if (location === "skalad") {
+          if (product.stock < product.quantity) {
+            message.error(`${product.product_name} mahsuloti skaladda yetarli emas!`);
+            return;
+          }
+          await createNasiya({
+            product_id: product._id,
+            product_name: product.product_name,
+            quantity: product.quantity,
+            location: location,
+            nasiya_name: name,
+          });
+        } else {
+          const storeProduct = storeProducts?.find(
+            (p) => p.product_id?._id === product._id
+          );
+          if (!storeProduct) {
+            message.error(`${product.product_name} mahsuloti dokonda mavjud emas!`);
+            return;
+          }
+          if (storeProduct.quantity < product.quantity) {
+            message.error(`${product.product_name} mahsuloti dokonda yetarli emas!`);
+            return;
+          }
+          await createNasiya({
+            product_id: product._id,
+            quantity: product.quantity,
+            location: location,
+            nasiya_name: name,
+          });
+        }
+      }
+      message.success("Mahsulotlar muvaffaqiyatli nasiyaga berildi!");
+      setNasiyaModal(false);
+      setSelectedProducts([]);
+      storeRefetch();
+      productRefetch();
+    } catch (error) {
+      console.error("Xatolik:", error);
+      message.error("Xatolik yuz berdi, iltimos qayta urinib ko'ring!");
+    }
+  }, [selectedProducts, storeProducts, createNasiya, storeRefetch, productRefetch]);
 
-  const totalAmount = selectedProducts.reduce((acc, product) => {
-    const convertedPrice = convertPrice(
-      product.sell_price,
-      product.currency,
-      currency
-    );
-    return acc + convertedPrice * product.quantity;
-  }, 0);
+  // Optimized nasiya completion
+  const handleCompleteNasiya = useCallback(async (item) => {
+    if (!sellPrice) {
+      message.error("Sotish narxini kiriting!");
+      return;
+    }
+    try {
+      await completeNasiya({
+        id: item._id,
+        sell_price: Number(sellPrice),
+        payment_method: nasiyaPaymentMethod,
+      });
+      message.success("Nasiya yopildi");
+      setSellPrice(null);
+      setNasiyaPaymentMethod("naqd");
+    } catch (error) {
+      message.error("Xatolik yuz berdi!");
+    }
+  }, [sellPrice, nasiyaPaymentMethod, completeNasiya]);
+
+  const handlePrint = useReactToPrint({
+    content: () => receiptRef.current,
+    documentTitle: "new document",
+    pageStyle: "style",
+    onAfterPrint: () => {
+      setChekModal(false);
+      setSelectedProducts([]);
+    },
+  });
+
+  // Table columns with useMemo
+  const productColumns = useMemo(() => [
+    { title: "Modeli", dataIndex: "model", key: "model" },
+    {
+      title: "Mahsulot nomi",
+      dataIndex: "product_name",
+      key: "product_name",
+    },
+    {
+      title: "Tan narxi",
+      dataIndex: "purchase_price",
+      key: "purchase_price",
+      render: (text) => (
+        <Tooltip title={text?.toLocaleString()}>
+          <span style={{ cursor: "pointer" }}>******</span>
+        </Tooltip>
+      ),
+    },
+    {
+      title: "Narxi",
+      dataIndex: "sell_price",
+      key: "sell_price",
+      render: (_, record) => (
+        <span>
+          {convertPrice(record.sell_price, record.currency, currency).toLocaleString()}
+          {currency === "usd" ? " USD" : " So'm"}
+        </span>
+      ),
+    },
+    {
+      title: "Dokon Miqdori",
+      dataIndex: "quantity",
+      key: "quantity",
+      render: (_, record) =>
+        storeProducts
+          ?.find((product) => product.product_id?._id === record._id)
+          ?.quantity?.toFixed(0) || 0,
+    },
+    { title: "Qutisi", dataIndex: "count_type", key: "count_type" },
+    {
+      title: "kimdan-kelgan",
+      dataIndex: "kimdan_kelgan",
+      key: "kimdan_kelgan",
+    },
+    {
+      title: "Harakatlar",
+      key: "actions",
+      render: (_, record) => (
+        <Button
+          type="primary"
+          onClick={() => handleSelectProduct(record)}
+        >
+          Tanlash
+        </Button>
+      ),
+    },
+  ], [currency, storeProducts, convertPrice, handleSelectProduct]);
+
+  const selectedProductsColumns = useMemo(() => [
+    {
+      title: "Mahsulot nomi",
+      dataIndex: "product_name",
+      key: "product_name",
+    },
+    {
+      title: (
+        <span>
+          Narxi{" "}
+          <select
+            value={currency}
+            onChange={(e) => setCurrency(e.target.value)}
+            style={{ width: 100 }}
+          >
+            <option value="sum">So'm</option>
+            <option value="usd">USD</option>
+          </select>
+        </span>
+      ),
+      key: "sell_price",
+      render: (_, record) => {
+        const price = convertPrice(record.sell_price, record.currency, currency);
+        return (
+          <input
+            type="number"
+            value={parseFloat(price.toFixed(2))}
+            onChange={(e) => handleSellPriceChange(record._id, e.target.value)}
+            style={{ width: "100px" }}
+          />
+        );
+      },
+    },
+    { title: "Miqdori", dataIndex: "quantity", key: "quantity" },
+    {
+      title: "Soni",
+      key: "quantity",
+      render: (_, record) => (
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <Button
+            onClick={() => handleQuantityChange(record._id, -1)}
+            disabled={record.quantity <= (["litr", "sm"].includes(record.count_type) ? 0.1 : 1)}
+          >
+            -
+          </Button>
+          {["litr", "sm"].includes(record.count_type) ? (
+            <input
+              type="number"
+              step="0.1"
+              min="0.1"
+              value={record.quantity}
+              onChange={(e) => handleQuantityInputChange(record._id, e.target.value)}
+              style={{ width: 60 }}
+            />
+          ) : (
+            <span>{record.quantity}</span>
+          )}
+          <Button onClick={() => handleQuantityChange(record._id, 1)}>
+            +
+          </Button>
+        </div>
+      ),
+    },
+    {
+      title: "Harakatlar",
+      key: "actions",
+      render: (_, record) => (
+        <Button
+          type="primary"
+          danger
+          onClick={() => handleRemoveProduct(record._id)}
+        >
+          O'chirish
+        </Button>
+      ),
+    },
+  ], [currency, convertPrice, handleSellPriceChange, handleQuantityChange, handleQuantityInputChange, handleRemoveProduct]);
+
 
   return (
     <div className="kassa-container">
+      {/* All modals and JSX remain exactly the same */}
       <Modal
         open={chekModal}
         style={{ display: "flex", justifyContent: "center" }}
@@ -569,7 +774,6 @@ export default function Kassa() {
         <SotuvTarix />
       </Modal>
 
-      {/* Masters modal moved to admin page */}
       <MastersModal
         visible={masterModal}
         onClose={() => setMasterModal(false)}
@@ -585,71 +789,7 @@ export default function Kassa() {
         footer={[]}
         onCancel={() => setNasiyaModal(false)}
       >
-        <form
-          className="modal_form"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            const name = e.target.name.value;
-            const location = e.target.location.value;
-            if (!name) {
-              message.error("Ismni to'ldiring!");
-              return;
-            }
-            if (!location) {
-              message.error("Joylashuvni to'ldiring!");
-              return;
-            }
-            try {
-              for (const product of selectedProducts) {
-                if (location === "skalad") {
-                  if (product.stock < product.quantity) {
-                    message.error(
-                      `${product.product_name} mahsuloti skaladda yetarli emas!`
-                    );
-                    return;
-                  }
-                  await createNasiya({
-                    product_id: product._id,
-                    product_name: product.product_name,
-                    quantity: product.quantity,
-                    location: location,
-                    nasiya_name: name,
-                  });
-                } else {
-                  const storeProduct = storeProducts?.find(
-                    (p) => p.product_id?._id === product._id
-                  );
-                  if (!storeProduct) {
-                    message.error(
-                      `${product.product_name} mahsuloti dokonda mavjud emas!`
-                    );
-                    return;
-                  }
-                  if (storeProduct.quantity < product.quantity) {
-                    message.error(
-                      `${product.product_name} mahsuloti dokonda yetarli emas!`
-                    );
-                    return;
-                  }
-                  await createNasiya({
-                    product_id: product._id,
-                    quantity: product.quantity,
-                    location: location,
-                    nasiya_name: name,
-                  });
-                }
-              }
-              message.success("Mahsulotlar muvaffaqiyatli nasiyaga berildi!");
-              setNasiyaModal(false);
-              setSelectedProducts([]);
-              storeRefetch();
-              productRefetch();
-            } catch (error) {
-              console.error("Xatolik:", error);
-              message.error("Xatolik yuz berdi, iltimos qayta urinib ko‘ring!");
-            }
-          }}
-        >
+        <form className="modal_form" onSubmit={handleNasiyaSubmit}>
           <p>Nasiyaga oluvchi ismi</p>
           <input placeholder="Ism" required type="text" name="name" />
           <select required name="location">
@@ -725,24 +865,7 @@ export default function Kassa() {
                           </select>
                         </div>
                       }
-                      onConfirm={async () => {
-                        if (!sellPrice) {
-                          message.error("Sotish narxini kiriting!");
-                          return;
-                        }
-                        try {
-                          await completeNasiya({
-                            id: item._id,
-                            sell_price: Number(sellPrice),
-                            payment_method: nasiyaPaymentMethod,
-                          });
-                          message.success("Nasiya yopildi");
-                          setSellPrice(null);
-                          setNasiyaPaymentMethod("naqd");
-                        } catch (error) {
-                          message.error("Xatolik yuz berdi!");
-                        }
-                      }}
+                      onConfirm={() => handleCompleteNasiya(item)}
                       okText="Yopish"
                       cancelText="Bekor qilish"
                     >
@@ -831,85 +954,7 @@ export default function Kassa() {
           dataSource={filteredProducts}
           loading={isLoading}
           style={{ width: "100%" }}
-          columns={[
-            { title: "Brend", dataIndex: "brand_name", key: "brand_name" },
-            { title: "Modeli", dataIndex: "model", key: "model" },
-            {
-              title: "Mahsulot nomi",
-              dataIndex: "product_name",
-              key: "product_name",
-            },
-            {
-              title: "Brend nomi",
-              dataIndex: "brand_name",
-              key: "brand_name",
-            },
-            {
-              title: "Tan narxi",
-              dataIndex: "purchase_price",
-              key: "purchase_price",
-              render: (text) => (
-                <Tooltip title={text.toLocaleString()}>
-                  <span style={{ cursor: "pointer" }}>******</span>
-                </Tooltip>
-              ),
-            },
-            {
-              title: (
-                <span>
-                  Narxi{" "}
-                  <Select
-                    value={currency}
-                    onChange={(value) => setCurrency(value)}
-                    style={{ width: 100 }}
-                  >
-                    <Option value="sum">So'm</Option>
-                    <Option value="usd">USD</Option>
-                  </Select>
-                </span>
-              ),
-              dataIndex: "sell_price",
-              key: "sell_price",
-              render: (_, record) => (
-                <span>
-                  {convertPrice(
-                    record.sell_price,
-                    record.currency,
-                    currency
-                  ).toLocaleString()}
-                  {currency === "usd" ? " USD" : " So'm"}
-                </span>
-              ),
-            },
-            {
-              title: "Dokon Miqdori",
-              dataIndex: "quantity",
-              key: "quantity",
-              render: (_, record) =>
-                storeProducts
-                  ?.find((product) => product.product_id?._id === record._id)
-                  ?.quantity?.toFixed(3) || 0,
-            },
-            { title: "Qutisi", dataIndex: "count_type", key: "count_type" },
-            { title: "Izoh", dataIndex: "special_notes", key: "special_notes" },
-            {
-              title: "kimdan-kelgan",
-              dataIndex: "kimdan_kelgan",
-              key: "kimdan_kelgan",
-            },
-            {
-              title: "Harakatlar",
-              key: "actions",
-              render: (_, record) => (
-                <Button
-                  type="primary"
-                  onClick={() => handleSelectProduct(record)}
-                >
-                  Tanlash
-                </Button>
-              ),
-            },
-          ]}
+          columns={productColumns}
           rowKey="_id"
           pagination={{ pageSize: 10 }}
         />
@@ -927,105 +972,7 @@ export default function Kassa() {
             <Table
               dataSource={selectedProducts}
               style={{ width: "100%" }}
-              columns={[
-                {
-                  title: "Mahsulot nomi",
-                  dataIndex: "product_name",
-                  key: "product_name",
-                },
-                {
-                  title: (
-                    <span>
-                      Narxi{" "}
-                      <select
-                        value={currency}
-                        onChange={(e) => setCurrency(e.target.value)}
-                        style={{ width: 100 }}
-                      >
-                        <option value="sum">So'm</option>
-                        <option value="usd">USD</option>
-                      </select>
-                    </span>
-                  ),
-                  key: "sell_price",
-                  render: (_, record) => {
-                    const price = convertPrice(
-                      record.sell_price,
-                      record.currency,
-                      currency
-                    );
-                    return (
-                      <input
-                        type="number"
-                        value={parseFloat(price.toFixed(2))}
-                        onChange={(e) =>
-                          handleSellPriceChange(record._id, e.target.value)
-                        }
-                        style={{ width: "100px" }}
-                      />
-                    );
-                  },
-                },
-                { title: "Miqdori", dataIndex: "quantity", key: "quantity" },
-                {
-                  title: "Soni",
-                  key: "quantity",
-                  render: (_, record) => (
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "8px",
-                      }}
-                    >
-                      <Button
-                        onClick={() => handleQuantityChange(record._id, -1)}
-                        disabled={
-                          record.quantity <=
-                          (["litr", "sm"].includes(record.count_type) ? 0.1 : 1)
-                        }
-                      >
-                        -
-                      </Button>
-                      {["litr", "sm"].includes(record.count_type) ? (
-                        <input
-                          type="number"
-                          step="0.1"
-                          min="0.1"
-                          value={record.quantity}
-                          onChange={(e) =>
-                            handleQuantityInputChange(
-                              record._id,
-                              e.target.value
-                            )
-                          }
-                          style={{ width: 60 }}
-                        />
-                      ) : (
-                        <span>{record.quantity}</span>
-                      )}
-                      <Button
-                        onClick={() => handleQuantityChange(record._id, 1)}
-                      >
-                        +
-                      </Button>
-                    </div>
-                  ),
-                },
-                {
-                  title: "Harakatlar",
-                  key: "actions",
-                  render: (_, record) => (
-                    <Button
-                      type="primary"
-                      danger
-                      onClick={() => handleRemoveProduct(record._id)}
-                    >
-                      O'chirish
-                    </Button>
-                  ),
-                },
-              ]}
+              columns={selectedProductsColumns}
               rowKey="_id"
               pagination={false}
             />
@@ -1190,9 +1137,6 @@ export default function Kassa() {
                 )}
               </>
             )}
-            <Form.Item label="Joylashuv">
-              <Input value="Dokon" disabled />
-            </Form.Item>
           </Form>
         </Modal>
       </Card>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Button,
   Modal,
@@ -8,608 +8,394 @@ import {
   Col,
   message,
   Select,
-  Table,
-  InputNumber,
-  Card,
-  Statistic,
-  Space,
+  AutoComplete,
+  Divider,
 } from "antd";
-import { PlusOutlined, DeleteOutlined } from "@ant-design/icons";
+import { PlusOutlined } from "@ant-design/icons";
+
+import { useCreateProductToStoreMutation } from "../../context/service/store.service";
 import { useGetAllProductsQuery } from "../../context/service/addproduct.service";
 import {
-  useGetSuppliersQuery,
-  useCreateSupplierMutation,
-} from "../../context/service/supplier.service";
-import axios from "axios"; // ✅ QOSHISH KERAK
+  useGetClientsQuery,
+  useCreateClientMutation,
+} from "../../context/service/client.service";
 
 const { Option } = Select;
 
 const AddProductToStore = ({ refetchProducts }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [form] = Form.useForm();
-  const [products, setProducts] = useState([
-    {
-      id: 1,
-      product_name: "",
-      model: "",
-      quantity: 1,
-      unit_price: 0,
-      currency: "usd",
-      count_type: "dona",
-      barcode: "",
-      brand_name: "",
-      total_price: 0,
-    },
-  ]);
+  const [barcode, setBarcode] = useState("");
 
-  const [createSupplier] = useCreateSupplierMutation();
+  const [createProduct, { isLoading: isCreating }] =
+    useCreateProductToStoreMutation();
+
   const { data: allProducts } = useGetAllProductsQuery();
-  const { data: suppliers } = useGetSuppliersQuery();
+  const { data: clientsData, isLoading: clientsLoading } = useGetClientsQuery();
+  const [createClient] = useCreateClientMutation();
 
-  const [selectedSupplier, setSelectedSupplier] = useState(null);
-  const [paidAmount, setPaidAmount] = useState(0);
-  const [paymentMethod, setPaymentMethod] = useState("cash");
-  const [isNewSupplier, setIsNewSupplier] = useState(false);
-  const [newSupplierData, setNewSupplierData] = useState({
-    name: "",
-    company_name: "",
-    phone: "",
-    address: "",
-  });
+  // Generate barcode
+  const generateBarcode = useCallback(() => {
+    return Math.floor(100000 + Math.random() * 900000).toString();
+  }, []);
 
-  const showModal = () => setIsModalOpen(true);
+  // On modal open -> generate barcode
+  useEffect(() => {
+    if (isModalOpen) {
+      const code = generateBarcode();
+      setBarcode(code);
 
-  const handleCancel = () => {
-    setIsModalOpen(false);
-    form.resetFields();
-    setProducts([
-      {
-        id: 1,
-        product_name: "",
-        model: "",
-        quantity: 1,
-        unit_price: 0,
-        currency: "usd",
-        count_type: "dona",
-        barcode: "",
-        brand_name: "",
-        total_price: 0,
-      },
-    ]);
-    setSelectedSupplier(null);
-    setPaidAmount(0);
-    setIsNewSupplier(false);
-    setNewSupplierData({
-      name: "",
-      company_name: "",
-      phone: "",
-      address: "",
-    });
-  };
-
-  const addProductRow = () => {
-    const newId = Date.now();
-    setProducts([
-      ...products,
-      {
-        id: newId,
-        product_name: "",
-        model: "",
-        quantity: 1,
-        unit_price: 0,
-        currency: "usd",
-        count_type: "dona",
-        barcode: "",
-        brand_name: "",
-        total_price: 0,
-      },
-    ]);
-  };
-
-  const removeProductRow = (id) => {
-    if (products.length > 1) {
-      setProducts(products.filter((product) => product.id !== id));
+      form.setFieldsValue({
+        barcode: code,
+        total_purchase_price: 0,
+        payment_amount: 0,
+        debt_amount: 0,
+      });
     }
-  };
+  }, [isModalOpen, generateBarcode, form]);
 
-  const updateProduct = (id, field, value) => {
-    setProducts(
-      products.map((product) => {
-        if (product.id === id) {
-          const updatedProduct = { ...product, [field]: value };
+  // Normalize clients
+  const clientList = useMemo(() => {
+    if (!clientsData) return [];
+    if (Array.isArray(clientsData)) return clientsData;
+    return clientsData.clients || clientsData.data || [];
+  }, [clientsData]);
 
-          if (field === "quantity" || field === "unit_price") {
-            updatedProduct.total_price =
-              updatedProduct.quantity * updatedProduct.unit_price;
-          }
+  // Unique product attrs
+  const { productNames, models, brandNames } = useMemo(() => {
+    if (!allProducts) return { productNames: [], models: [], brandNames: [] };
+    const list = Array.isArray(allProducts)
+      ? allProducts
+      : allProducts.products || [];
 
-          return updatedProduct;
-        }
-        return product;
-      })
-    );
-  };
+    return {
+      productNames: [
+        ...new Set(list.map((p) => p.product_name).filter(Boolean)),
+      ],
+      models: [...new Set(list.map((p) => p.model).filter(Boolean))],
+      brandNames: [...new Set(list.map((p) => p.brand_name).filter(Boolean))],
+    };
+  }, [allProducts]);
 
-  const generateBarcode = (productId) => {
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
-    updateProduct(productId, "barcode", code);
-  };
+  // Client options
+  const clientOptions = useMemo(() => {
+    return clientList.map((c) => ({
+      value: c.name,
+      label: (
+        <div>
+          <strong>{c.name}</strong>
+          <div style={{ fontSize: 12, color: "#888" }}>
+            {c.phone} {c.address ? " • " + c.address : ""}
+          </div>
+        </div>
+      ),
+      key: c._id,
+      phone: c.phone,
+      address: c.address,
+    }));
+  }, [clientList]);
 
-  const totals = products.reduce(
-    (acc, product) => {
-      acc.totalAmount += product.total_price || 0;
-      acc.totalQuantity += product.quantity || 0;
-      return acc;
+  // When selecting client
+  const handleClientSelect = useCallback(
+    (value) => {
+      const found = clientList.find((c) => c.name === value);
+      if (found) {
+        form.setFieldsValue({
+          client_phone: found.phone || "",
+          client_address: found.address || "",
+        });
+      }
     },
-    { totalAmount: 0, totalQuantity: 0 }
+    [clientList, form]
   );
 
-  const debtAmount = totals.totalAmount - paidAmount;
+  // Compute total + debt
+  const computeTotals = useCallback(() => {
+    const stock = Number(form.getFieldValue("stock") || 0);
+    const purchasePrice = Number(form.getFieldValue("purchase_price") || 0);
+    const total = stock * purchasePrice;
 
-  const handleSupplierChange = (value) => {
-    if (value === "new") {
-      setIsNewSupplier(true);
-      setSelectedSupplier(null);
-    } else {
-      setIsNewSupplier(false);
-      setSelectedSupplier(value);
-    }
-  };
+    const paid = Number(form.getFieldValue("payment_amount") || 0);
+    const debt = total - paid;
 
-  const handleCreateSupplier = async () => {
-    try {
-      if (
-        !newSupplierData.name ||
-        !newSupplierData.company_name ||
-        !newSupplierData.phone ||
-        !newSupplierData.address
-      ) {
-        message.error("Barcha maydonlarni to'ldiring");
-        return;
-      }
+    form.setFieldsValue({
+      total_purchase_price: total,
+      debt_amount: debt < 0 ? 0 : debt,
+    });
+  }, [form]);
 
-      const result = await createSupplier(newSupplierData).unwrap();
-      message.success("Yetkazib beruvchi qo'shildi");
-      setSelectedSupplier(result.supplier._id);
-      setIsNewSupplier(false);
-    } catch (error) {
-      message.error(
-        "Xatolik yuz berdi: " + (error.data?.message || "Noma'lum xato")
-      );
-    }
-  };
+  // Compute when modal opens
+  useEffect(() => {
+    if (isModalOpen) computeTotals();
+  }, [isModalOpen, computeTotals]);
 
-  // ✅ ASOSIY TUZATISH - API'ga so'rov yuborish
-  const handleFinish = async (values) => {
-    try {
-      if (!selectedSupplier) {
-        message.error("Yetkazib beruvchi tanlang");
-        return;
-      }
+  // Regenerate barcode
+  const handleBarcodeRegenerate = useCallback(() => {
+    const code = generateBarcode();
+    setBarcode(code);
+    form.setFieldsValue({ barcode: code });
+  }, [generateBarcode, form]);
 
-      // Mahsulotlarni tekshirish
-      const invalidProducts = products.filter(
-        (p) =>
-          !p.product_name || !p.model || p.quantity <= 0 || p.unit_price <= 0
-      );
+  // Submit
+  const handleSubmit = useCallback(
+    async (values) => {
+      try {
+        let client_id = null;
 
-      if (invalidProducts.length > 0) {
-        message.error(
-          "Barcha mahsulotlarning nomi, modeli, miqdori va narxi to'ldirilishi kerak"
+        const trimmedName = values.client_name?.trim() || "";
+
+        let existing = clientList.find(
+          (c) => c.name.trim().toLowerCase() === trimmedName.toLowerCase()
         );
-        return;
-      }
 
-      // ✅ Backend'ga yuboradigan ma'lumotlar - total_price qo'shildi
-      const receiptData = {
-        supplier_id: selectedSupplier,
-        products: products.map((product) => ({
-          product_name: product.product_name,
-          model: product.model,
-          quantity: product.quantity,
-          unit_price: product.unit_price,
-          currency: product.currency,
-          count_type: product.count_type,
-          barcode: product.barcode || `temp_${product.id}`,
-          brand_name: product.brand_name || "",
-          total_price: product.quantity * product.unit_price, // ✅ QO'SHILDI
-        })),
-        paid_amount: paidAmount,
-        payment_method: paymentMethod,
-        notes: values.notes || "",
-        total_amount: totals.totalAmount,
-        debt_amount: debtAmount,
-      };
+        if (existing) {
+          client_id = existing._id;
+        } else {
+          // Create new client
+          const res = await createClient({
+            name: trimmedName,
+            phone: values.client_phone?.trim(),
+            address: values.client_address?.trim(),
+          }).unwrap();
 
-      console.log("✅ Yuborilayotgan ma'lumotlar:", receiptData);
-      console.log("✅ URL:", "http://localhost:8080/api/product-receipts");
-
-      // Loading message
-      const hide = message.loading("Tavarlar qabul qilinmoqda...", 0);
-
-      // ✅ API'ga POST so'rovi - TO'G'RI URL va PORT
-      const response = await axios.post(
-        "http://localhost:8080/api/product-receipts", // ✅ PORT 8080
-        receiptData,
-        {
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${localStorage.getItem("token")}`, // ✅ TOKEN
-          },
-          timeout: 10000,
+          client_id = res.client?._id || res._id;
         }
-      );
 
-      hide();
-      console.log("✅ Server javobi:", response.data);
-      message.success("Tavarlar muvaffaqiyatli qabul qilindi!");
+        // Build payload
+        const payload = {
+          barcode: values.barcode,
+          product_name: values.product_name,
+          model: values.model,
+          stock: Number(values.stock),
+          purchase_price: Number(values.purchase_price),
+          sell_price: Number(values.sell_price),
+          purchase_currency: values.currency,
+          sell_currency: values.currency,
+          total_purchase_price: Number(values.total_purchase_price),
+          payment_amount: Number(values.payment_amount),
+          debt_amount: Number(values.debt_amount),
+          brand_name: values.brand_name,
+          client_id,
+        };
 
-      // ✅ Mahsulotlar ro'yxatini yangilash
-      if (refetchProducts) {
-        refetchProducts();
+        await createProduct(payload).unwrap();
+
+        message.success("Mahsulot muvaffaqiyatli qo'shildi!");
+
+        setIsModalOpen(false);
+        form.resetFields();
+        setBarcode("");
+
+        refetchProducts && refetchProducts();
+      } catch (err) {
+        console.log(err);
+        message.error(err?.data?.message || "Xatolik yuz berdi!");
       }
+    },
+    [clientList, createClient, createProduct, form, refetchProducts]
+  );
 
-      handleCancel();
-    } catch (err) {
-      console.error("❌ Xatolik:", err);
-      console.error("❌ Response:", err.response);
-      console.error("❌ Message:", err.message);
-
-      if (err.code === "ERR_NETWORK") {
-        message.error(
-          "Server bilan bog'lanib bo'lmadi! Backend ishlab turganini tekshiring."
-        );
-      } else if (err.response) {
-        message.error(
-          "Xatolik: " + (err.response?.data?.message || "Noma'lum xato")
-        );
-      } else if (err.request) {
-        message.error(
-          "Server javob bermadi! Backend ishlab turganini tekshiring."
-        );
-      } else {
-        message.error("Xatolik: " + err.message);
-      }
-    }
-  };
-
-  const productColumns = [
-    {
-      title: "Mahsulot nomi",
-      dataIndex: "product_name",
-      key: "product_name",
-      width: 150,
-      render: (text, record) => (
-        <Input
-          value={text}
-          onChange={(e) =>
-            updateProduct(record.id, "product_name", e.target.value)
-          }
-          placeholder="Mahsulot nomi"
-        />
-      ),
-    },
-    {
-      title: "Model",
-      dataIndex: "model",
-      key: "model",
-      width: 120,
-      render: (text, record) => (
-        <Input
-          value={text}
-          onChange={(e) => updateProduct(record.id, "model", e.target.value)}
-          placeholder="Model"
-        />
-      ),
-    },
-    {
-      title: "Miqdor",
-      dataIndex: "quantity",
-      key: "quantity",
-      width: 80,
-      render: (text, record) => (
-        <InputNumber
-          value={text}
-          onChange={(value) => updateProduct(record.id, "quantity", value)}
-          min={1}
-          style={{ width: "70px" }}
-        />
-      ),
-    },
-    {
-      title: "Narx",
-      dataIndex: "unit_price",
-      key: "unit_price",
-      width: 100,
-      render: (text, record) => (
-        <InputNumber
-          value={text}
-          onChange={(value) => updateProduct(record.id, "unit_price", value)}
-          min={0}
-          step={0.01}
-          style={{ width: "90px" }}
-        />
-      ),
-    },
-    {
-      title: "Valyuta",
-      dataIndex: "currency",
-      key: "currency",
-      width: 80,
-      render: (text, record) => (
-        <Select
-          value={text}
-          onChange={(value) => updateProduct(record.id, "currency", value)}
-          style={{ width: "80px" }}
-        >
-          <Option value="usd">USD</Option>
-          <Option value="sum">So'm</Option>
-        </Select>
-      ),
-    },
-    {
-      title: "Barcode",
-      dataIndex: "barcode",
-      key: "barcode",
-      width: 140,
-      render: (text, record) => (
-        <Space.Compact style={{ width: "100%" }}>
-          <Input
-            value={text}
-            onChange={(e) =>
-              updateProduct(record.id, "barcode", e.target.value)
-            }
-            placeholder="Barcode"
-          />
-          <Button onClick={() => generateBarcode(record.id)} size="small">
-            Yaratish
-          </Button>
-        </Space.Compact>
-      ),
-    },
-    {
-      title: "Jami",
-      dataIndex: "total_price",
-      key: "total_price",
-      width: 100,
-      render: (text) => <span>{text?.toLocaleString()}</span>,
-    },
-    {
-      title: "Harakat",
-      key: "action",
-      width: 80,
-      render: (_, record) => (
-        <Button
-          type="link"
-          danger
-          icon={<DeleteOutlined />}
-          onClick={() => removeProductRow(record.id)}
-          disabled={products.length === 1}
-        />
-      ),
-    },
-  ];
+  // Close modal
+  const handleModalClose = useCallback(() => {
+    setIsModalOpen(false);
+    form.resetFields();
+    setBarcode("");
+  }, [form]);
 
   return (
     <div>
       <Button
         type="primary"
-        onClick={showModal}
-        style={{
-          backgroundColor: "#1890ff",
-          borderColor: "#1890ff",
-          marginBottom: "10px",
-        }}
+        onClick={() => setIsModalOpen(true)}
         icon={<PlusOutlined />}
+        style={{
+          backgroundColor: "#52c41a",
+          borderColor: "#52c41a",
+          marginBottom: 12,
+        }}
       >
-        Tavar qabul qilish +
+        Dokonga Mahsulot qo'shish +
       </Button>
 
       <Modal
-        title="Tavar qabul qilish"
+        title="Mahsulot yaratish"
         open={isModalOpen}
-        onCancel={handleCancel}
+        onCancel={handleModalClose}
         footer={null}
-        width={1100}
-        style={{ top: 20 }}
+        width={820}
+        destroyOnClose
       >
-        <Form layout="vertical" form={form} onFinish={handleFinish}>
-          <Card
-            title="Yetkazib beruvchi"
-            size="small"
-            style={{ marginBottom: 16 }}
-          >
-            <Row gutter={16}>
-              <Col span={12}>
-                <Form.Item label="Yetkazib beruvchi" required>
-                  <Select
-                    placeholder="Yetkazib beruvchi tanlang"
-                    value={selectedSupplier}
-                    onChange={handleSupplierChange}
-                    showSearch
-                    optionFilterProp="children"
-                    disabled={isNewSupplier}
-                  >
-                    <Option value="new">+ Yangi yetkazib beruvchi</Option>
-                    {suppliers?.map((supplier) => (
-                      <Option key={supplier._id} value={supplier._id}>
-                        {supplier.company_name} - {supplier.name}
-                      </Option>
-                    ))}
-                  </Select>
-                </Form.Item>
-
-                {isNewSupplier && (
-                  <div style={{ marginTop: 16 }}>
-                    <Row gutter={8}>
-                      <Col span={12}>
-                        <Input
-                          placeholder="Ism"
-                          value={newSupplierData.name}
-                          onChange={(e) =>
-                            setNewSupplierData({
-                              ...newSupplierData,
-                              name: e.target.value,
-                            })
-                          }
-                        />
-                      </Col>
-                      <Col span={12}>
-                        <Input
-                          placeholder="Firma nomi"
-                          value={newSupplierData.company_name}
-                          onChange={(e) =>
-                            setNewSupplierData({
-                              ...newSupplierData,
-                              company_name: e.target.value,
-                            })
-                          }
-                        />
-                      </Col>
-                    </Row>
-                    <Row gutter={8} style={{ marginTop: 8 }}>
-                      <Col span={12}>
-                        <Input
-                          placeholder="Telefon"
-                          value={newSupplierData.phone}
-                          onChange={(e) =>
-                            setNewSupplierData({
-                              ...newSupplierData,
-                              phone: e.target.value,
-                            })
-                          }
-                        />
-                      </Col>
-                      <Col span={12}>
-                        <Input
-                          placeholder="Manzil"
-                          value={newSupplierData.address}
-                          onChange={(e) =>
-                            setNewSupplierData({
-                              ...newSupplierData,
-                              address: e.target.value,
-                            })
-                          }
-                        />
-                      </Col>
-                    </Row>
-                    <Button
-                      type="primary"
-                      onClick={handleCreateSupplier}
-                      style={{ marginTop: 8 }}
-                      block
-                    >
-                      Yetkazib beruvchini saqlash
-                    </Button>
-                  </div>
-                )}
-              </Col>
-              <Col span={12}>
-                <Form.Item label="To'lov usuli">
-                  <Select value={paymentMethod} onChange={setPaymentMethod}>
-                    <Option value="cash">Naqd</Option>
-                    <Option value="card">Karta</Option>
-                    <Option value="transfer">O'tkazma</Option>
-                  </Select>
-                </Form.Item>
-
-                <Form.Item label="To'langan summa">
-                  <InputNumber
-                    value={paidAmount}
-                    onChange={setPaidAmount}
-                    style={{ width: "100%" }}
-                    min={0}
-                    max={totals.totalAmount}
-                    formatter={(value) =>
-                      `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
-                    }
-                  />
-                </Form.Item>
-              </Col>
-            </Row>
-          </Card>
-
-          <Card
-            title={`Tavarlar (${products.length} ta)`}
-            size="small"
-            style={{ marginBottom: 16 }}
-            extra={
-              <Button
-                type="dashed"
-                icon={<PlusOutlined />}
-                onClick={addProductRow}
-              >
-                Qo'shish
-              </Button>
-            }
-          >
-            <Table
-              dataSource={products}
-              columns={productColumns}
-              rowKey="id"
-              pagination={false}
-              size="small"
-              scroll={{ x: 800 }}
+        {/* BARCODE */}
+        <Form layout="inline" style={{ marginBottom: 15 }}>
+          <Form.Item label="Shtrix kod">
+            <Input
+              value={barcode}
+              onChange={(e) => {
+                setBarcode(e.target.value);
+                form.setFieldsValue({ barcode: e.target.value });
+              }}
+              style={{ width: 200 }}
             />
-          </Card>
-
-          <Card title="Hisob-kitob" size="small" style={{ marginBottom: 16 }}>
-            <Row gutter={16}>
-              <Col span={6}>
-                <Statistic
-                  title="Umumiy summa"
-                  value={totals.totalAmount}
-                  precision={2}
-                  suffix={products[0]?.currency === "usd" ? " USD" : " So'm"}
-                />
-              </Col>
-              <Col span={6}>
-                <Statistic
-                  title="To'langan"
-                  value={paidAmount}
-                  precision={2}
-                  suffix={products[0]?.currency === "usd" ? " USD" : " So'm"}
-                />
-              </Col>
-              <Col span={6}>
-                <Statistic
-                  title="Qarz qoldig'i"
-                  value={debtAmount}
-                  precision={2}
-                  valueStyle={{ color: debtAmount > 0 ? "#cf1322" : "#3f8600" }}
-                  suffix={products[0]?.currency === "usd" ? " USD" : " So'm"}
-                />
-              </Col>
-              <Col span={6}>
-                <Statistic
-                  title="Holat"
-                  value={
-                    debtAmount === 0
-                      ? "To'langan"
-                      : debtAmount === totals.totalAmount
-                      ? "Qarz"
-                      : "Qisman"
-                  }
-                  valueStyle={{
-                    color:
-                      debtAmount === 0
-                        ? "#3f8600"
-                        : debtAmount === totals.totalAmount
-                        ? "#cf1322"
-                        : "#faad14",
-                  }}
-                />
-              </Col>
-            </Row>
-          </Card>
-
-          <Form.Item label="Qo'shimcha izoh" name="notes">
-            <Input.TextArea placeholder="Qo'shimcha izohlar..." rows={2} />
           </Form.Item>
 
           <Form.Item>
-            <Button type="primary" htmlType="submit" block size="large">
-              Tavarlarni qabul qilish
+            <Button onClick={handleBarcodeRegenerate}>Yangi barcode</Button>
+          </Form.Item>
+        </Form>
+
+        <Divider />
+
+        <Form layout="vertical" form={form} onFinish={handleSubmit}>
+          <Form.Item name="barcode" initialValue={barcode} hidden>
+            <Input />
+          </Form.Item>
+
+          {/* PRODUCT INFO */}
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                name="product_name"
+                label="Mahsulot nomi"
+                rules={[{ required: true }]}
+              >
+                <AutoComplete
+                  options={productNames.map((v) => ({ value: v }))}
+                />
+              </Form.Item>
+            </Col>
+
+            <Col span={12}>
+              <Form.Item
+                name="model"
+                label="Model"
+                rules={[{ required: true }]}
+              >
+                <AutoComplete options={models.map((v) => ({ value: v }))} />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={16}>
+            <Col span={8}>
+              <Form.Item
+                name="stock"
+                label="Miqdor"
+                rules={[{ required: true }]}
+              >
+                <Input type="number" onChange={computeTotals} />
+              </Form.Item>
+            </Col>
+
+            <Col span={8}>
+              <Form.Item
+                name="purchase_price"
+                label="Tannarx (1 dona)"
+                rules={[{ required: true }]}
+              >
+                <Input type="number" onChange={computeTotals} />
+              </Form.Item>
+            </Col>
+
+            <Col span={8}>
+              <Form.Item name="total_purchase_price" label="Umumiy tannarx">
+                <Input disabled />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          {/* PAYMENT BLOCK */}
+          <Divider />
+
+          <h3>To'lov ma'lumotlari</h3>
+
+          <Row gutter={16}>
+            <Col span={8}>
+              <Form.Item
+                name="payment_amount"
+                label="To'langan summa"
+                initialValue={0}
+              >
+                <Input type="number" onChange={computeTotals} />
+              </Form.Item>
+            </Col>
+
+            <Col span={8}>
+              <Form.Item name="debt_amount" label="Qolgan qarz">
+                <Input disabled />
+              </Form.Item>
+            </Col>
+
+            <Col span={8}>
+              <Form.Item name="currency" label="Valyuta" initialValue="usd">
+                <Select>
+                  <Option value="usd">USD ($)</Option>
+                  <Option value="sum">SUM</Option>
+                </Select>
+              </Form.Item>
+            </Col>
+          </Row>
+
+          {/* SELL PRICE */}
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                name="sell_price"
+                label="Sotish narxi"
+                rules={[{ required: true }]}
+              >
+                <Input type="number" />
+              </Form.Item>
+            </Col>
+
+            <Col span={12}>
+              <Form.Item name="brand_name" label="Brand">
+                <AutoComplete options={brandNames.map((v) => ({ value: v }))} />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          {/* CLIENT */}
+          <Divider />
+
+          <h3>Kimdan kelgan (Ta'minotchi)</h3>
+
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                name="client_name"
+                label="Ism"
+                rules={[{ required: true }]}
+              >
+                <AutoComplete
+                  options={clientOptions}
+                  onSelect={handleClientSelect}
+                  loading={clientsLoading}
+                />
+              </Form.Item>
+            </Col>
+
+            <Col span={12}>
+              <Form.Item name="client_phone" label="Telefon">
+                <Input />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Form.Item name="client_address" label="Manzil">
+            <Input />
+          </Form.Item>
+
+          <Divider />
+
+          <Form.Item>
+            <Button
+              type="primary"
+              htmlType="submit"
+              block
+              loading={isCreating}
+              size="large"
+            >
+              Saqlash
             </Button>
           </Form.Item>
         </Form>

@@ -55,7 +55,7 @@ export default function SotuvTarix() {
     filterSales(selectedDateRange, paymentMethod, value);
   };
 
-  // ✅ FILTER: Faqat haqiqiy sotuvlarni ko'rsatish, qarzdor to'lovlarini OLIB TASHLASH
+  // ✅ Qarzdor to'lovlarini va haqiqiy sotuvlarni ajratish
   const filterSales = (dates, payment, currency) => {
     let filtered = sales || [];
 
@@ -284,6 +284,39 @@ export default function SotuvTarix() {
   const sumStats = calculateStats(filteredSales, "sum");
   const usdStats = calculateStats(filteredSales, "usd");
 
+  // ✅ Naqd va qarzga sotilganlarni ajratish
+  // Qarzga sotilgan = debtor_name va debtor_phone mavjud
+  // Naqd = debtor_name va debtor_phone yo'q
+  const calculatePaymentStats = (data, currency, isDebt) => {
+    const filtered =
+      data?.filter((item) => {
+        const hasDebtInfo = item.debtor_name && item.debtor_phone;
+
+        if (item.currency !== currency) return false;
+
+        // Agar qarz kerak bo'lsa - debtor_name bor bo'lsin
+        // Agar naqd kerak bo'lsa - debtor_name yo'q bo'lsin
+        if (isDebt) {
+          return hasDebtInfo;
+        } else {
+          return !hasDebtInfo && item.payment_method === "naqd";
+        }
+      }) || [];
+
+    const total = filtered.reduce((acc, sale) => acc + sale.total_price, 0);
+    const totalProfit = filtered.reduce(
+      (acc, sale) => acc + calculateProfitLoss(sale),
+      0
+    );
+
+    return { total, totalProfit, count: filtered.length };
+  };
+
+  const naqd_sum = calculatePaymentStats(filteredSales, "sum", false);
+  const naqd_usd = calculatePaymentStats(filteredSales, "usd", false);
+  const qarz_sum = calculatePaymentStats(filteredSales, "sum", true);
+  const qarz_usd = calculatePaymentStats(filteredSales, "usd", true);
+
   useEffect(() => {
     // Dastlabki filter: qarzdor to'lovlarini olib tashlash
     const initialFilteredSales = (sales || []).filter(
@@ -374,17 +407,33 @@ export default function SotuvTarix() {
       },
     },
     {
-      title: "To'lov usuli",
-      dataIndex: "payment_method",
-      key: "payment_method",
-      render: (method) => {
+      title: "To'lov usuli / Qarzdor",
+      key: "payment_info",
+      render: (text, record) => {
+        const hasDebtInfo = record.debtor_name && record.debtor_phone;
+
+        if (hasDebtInfo) {
+          return (
+            <div>
+              <Tag color="orange">Qarzga</Tag>
+              <div style={{ fontSize: "12px", marginTop: 4 }}>
+                {record.debtor_name} - {record.debtor_phone}
+              </div>
+            </div>
+          );
+        }
+
         const methodNames = {
           naqd: "Naqd",
           plastik: "Karta",
           qarz: "Qarz",
           master: "Ustaga",
         };
-        return methodNames[method] || method;
+        return (
+          <Tag color="green">
+            {methodNames[record.payment_method] || record.payment_method}
+          </Tag>
+        );
       },
     },
     {
@@ -436,7 +485,6 @@ export default function SotuvTarix() {
           <Option value="plastik">Karta</Option>
           <Option value="qarz">Qarz</Option>
           <Option value="master">Ustaga</Option>
-          {/* Qarzdor to'lovi varianti OLIB TASHLANDI */}
         </Select>
         <Select
           placeholder="Valyutani tanlang"
@@ -565,23 +613,48 @@ export default function SotuvTarix() {
         </Col>
       </Row>
 
-      {/* Qarzdor to'lovlari statistikasi - ALOHIDA */}
-      <Row gutter={16} style={{ marginBottom: 20 }}>
-        <Col span={12}>
-          <Statistic
-            title="Qarzdor to'lovlari (so'm)"
-            value={formatPrice(paymentSummary.sum, "sum")}
-            valueStyle={{ color: "#52c41a" }}
-          />
-        </Col>
-        <Col span={12}>
-          <Statistic
-            title="Qarzdor to'lovlari ($)"
-            value={formatPrice(paymentSummary.usd, "usd")}
-            valueStyle={{ color: "#52c41a" }}
-          />
-        </Col>
-      </Row>
+    
+
+      {/* Qarzga sotilgan statistikasi */}
+      <Card
+        title="📋 Qarzga sotilgan"
+        style={{ marginBottom: 20 }}
+        bordered={false}
+      >
+        <Row gutter={16}>
+          <Col span={6}>
+            <Statistic
+              title="Qarz sotuvlar soni"
+              value={qarz_sum.count + qarz_usd.count}
+            />
+          </Col>
+          <Col span={6}>
+            <Statistic
+              title="Qarz summa (so'm)"
+              value={formatPrice(qarz_sum.total, "sum")}
+              valueStyle={{ color: "#faad14" }}
+            />
+          </Col>
+          <Col span={6}>
+            <Statistic
+              title="Qarz foyda (so'm)"
+              value={formatPrice(Math.abs(qarz_sum.totalProfit), "sum")}
+              valueStyle={{
+                color: qarz_sum.totalProfit >= 0 ? "#3f8600" : "#cf1322",
+              }}
+              prefix={qarz_sum.totalProfit >= 0 ? "+" : "-"}
+            />
+          </Col>
+          <Col span={6}>
+            <Statistic
+              title="Qarz summa ($)"
+              value={formatPrice(qarz_usd.total, "usd")}
+              valueStyle={{ color: "#faad14" }}
+            />
+          </Col>
+        </Row>
+      </Card>
+
 
       {/* Sotuvlar jadvali - FAQAT HAQIQIY SOTUVLAR */}
       <Table
@@ -594,21 +667,7 @@ export default function SotuvTarix() {
         title={() => <h3>📈 Haqiqiy sotuvlar ro'yxati</h3>}
       />
 
-      {/* Qarzdor to'lovlari jadvali - ALOHIDA */}
-      <Card
-        title="💰 Qarzdor to'lovlari ro'yxati"
-        style={{ marginTop: 20 }}
-        bordered={false}
-      >
-        <Table
-          dataSource={filteredPayments}
-          columns={paymentColumns}
-          loading={paymentsLoading}
-          rowKey="_id"
-          pagination={{ pageSize: 10 }}
-          scroll={{ x: 1200 }}
-        />
-      </Card>
+    
     </Card>
   );
 }

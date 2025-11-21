@@ -2,14 +2,10 @@ import React, { useState, useEffect, useRef, useMemo } from "react";
 import { Table, Input, Select, Button, Popconfirm, message, Modal } from "antd";
 import {
   useGetStoreProductsQuery,
-  useAddProductToStoreMutation,
   useRemoveProductFromStoreMutation,
   useUpdateQuantityMutation,
 } from "../../context/service/store.service";
-import {
-  useGetAllProductsQuery,
-  useUpdateProductMutation,
-} from "../../context/service/addproduct.service";
+
 import AddProductToStore from "../../components/addproduct/AddProductToStore";
 import EditProductModal from "../../components/modal/Editmodal";
 import { EditOutlined, DeleteOutlined } from "@ant-design/icons";
@@ -28,210 +24,119 @@ export default function StoreItem() {
     refetch: refetchStoreProducts,
   } = useGetStoreProductsQuery();
 
-  const { data: allProducts } = useGetAllProductsQuery();
-  const [addProductToStore] = useAddProductToStoreMutation();
   const [removeProductFromStore] = useRemoveProductFromStoreMutation();
   const [updateQuantity] = useUpdateQuantityMutation();
-  const [updateProduct] = useUpdateProductMutation();
+
   const [searchQuery, setSearchQuery] = useState("");
   const [barcodeSearch, setBarcodeSearch] = useState("");
   const [stockFilter, setStockFilter] = useState("newlyAdded");
   const [selectedKimdanKelgan, setSelectedKimdanKelgan] = useState(null);
+
   const [isEditModalVisible, setIsEditModalVisible] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
+
   const [selectedQuantity, setSelectedQuantity] = useState("");
   const [quantityModal, setQuantityModal] = useState(false);
+
   const { register, handleSubmit, reset } = useForm();
+
   const [printData, setPrintData] = useState(null);
   const printRef = useRef();
 
   useEffect(() => {
     refetchStoreProducts();
-  }, [stockFilter]);
+  }, [stockFilter, refetchStoreProducts]);
 
-  const handleFilterChange = (value) => {
-    setStockFilter(value);
-  };
+  const handleFilterChange = (value) => setStockFilter(value);
 
-  const sortedStoreProducts = [...(storeProducts || [])]
-    .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
-    .reverse();
+  // ✅ 1) RESPONSE NORMALIZE: array yoki {products: []}
+  const storeList = useMemo(() => {
+    if (!storeProducts) return [];
+    if (Array.isArray(storeProducts)) return storeProducts;
+    return storeProducts.products || [];
+  }, [storeProducts]);
 
-  const filteredStoreProducts = sortedStoreProducts
-    .filter((product) => {
+  // ✅ 2) FORMAT DETECT
+  const isStoreFormat = useMemo(() => {
+    return storeList.length > 0 && !!storeList[0]?.product_id;
+  }, [storeList]);
+
+  // ✅ 3) STORE-LIKE GETTERS
+  const getProduct = (item) => (isStoreFormat ? item.product_id : item);
+  const getQty = (item) => (isStoreFormat ? item.quantity : item.stock);
+
+  // ✅ sort by created_at
+  const sortedList = useMemo(() => {
+    const listCopy = [...storeList];
+    return listCopy
+      .sort((a, b) => {
+        const da = new Date(a.created_at || a.createdAt || 0).getTime();
+        const db = new Date(b.created_at || b.createdAt || 0).getTime();
+        return da - db;
+      })
+      .reverse();
+  }, [storeList]);
+
+  // ✅ filters
+  const filteredList = sortedList
+    .filter((item) => {
+      const p = getProduct(item);
       const query = searchQuery.toLowerCase();
       const barcodeQuery = barcodeSearch.toLowerCase();
-      const name = product?.product_id?.product_name?.toLowerCase() || "";
-      const model = product?.product_id?.model?.toLowerCase() || "";
-      const barcode = product?.product_id?.barcode?.toLowerCase() || "";
+
+      const name = p?.product_name?.toLowerCase() || "";
+      const model = p?.model?.toLowerCase() || "";
+      const barcode = p?.barcode?.toLowerCase() || "";
+
       return (
         (name.includes(query) || model.includes(query)) &&
         (!barcodeQuery || barcode.includes(barcodeQuery))
       );
     })
-    .filter((product) => {
+    .filter((item) => {
+      const qty = Number(getQty(item) || 0);
+
       if (stockFilter === "all") return true;
       if (stockFilter === "newlyAdded") return true;
-      if (stockFilter === "runningOut")
-        return product.quantity <= 5 && product.quantity > 0;
-      if (stockFilter === "outOfStock") return product.quantity === 0;
-      return false;
+      if (stockFilter === "runningOut") return qty <= 5 && qty > 0;
+      if (stockFilter === "outOfStock") return qty === 0;
+      return true;
     })
-    .filter((p) =>
-      selectedKimdanKelgan
-        ? p.product_id.kimdan_kelgan === selectedKimdanKelgan
-        : true
-    );
+    .filter((item) => {
+      const p = getProduct(item);
+      return selectedKimdanKelgan
+        ? p?.kimdan_kelgan === selectedKimdanKelgan
+        : true;
+    });
 
-  const preparePrintData = (product) => {
-
-    const priceVal = product.product_id?.sell_price ?? 0;
-    const priceCurrency =
-      product.product_id?.sell_currency === "usd" ? "$" : "so'm";
+  // ✅ print data
+  const preparePrintData = (item) => {
+    const p = getProduct(item);
+    const priceVal = p?.sell_price ?? 0;
+    const priceCurrency = p?.sell_currency === "usd" ? "$" : "so'm";
 
     return {
-      name: product.product_id?.product_name ?? "Noma'lum",
-      model: product.product_id?.model ?? "",
+      name: p?.product_name ?? "Noma'lum",
+      model: p?.model ?? "",
       price: `${priceVal.toFixed(0)}${priceCurrency}`,
-      barcode: product.product_id?.barcode ?? "0000000000000",
-      special_notes: product.product_id?.special_notes ?? "-",
+      barcode: p?.barcode ?? "0000000000000",
+      special_notes: p?.special_notes ?? "-",
     };
   };
 
+  // ✅ kimdan_kelgan filter list
   const uniqueKimdanKelgan = useMemo(() => {
     const set = new Set();
-    storeProducts?.forEach((item) => {
-      if (item?.product_id?.kimdan_kelgan) {
-        set.add(item.product_id.kimdan_kelgan);
-      }
+    storeList.forEach((item) => {
+      const p = getProduct(item);
+      if (p?.kimdan_kelgan) set.add(p.kimdan_kelgan);
     });
-    return [...set]; // Set'ni arrayga aylantirish
-  }, [storeProducts]);
+    return [...set];
+  }, [storeList, isStoreFormat]);
 
-  const columns = [
-    {
-      title: "Maxsulot nomi",
-      key: "product_name",
-      render: (_, item) => item?.product_id?.product_name,
-    },
-    {
-      title: "Modeli",
-      key: "modeli",
-      render: (_, item) => item?.product_id?.model,
-    },
-   
-    {
-      title: "Miqdor",
-      key: "quantity",
-      render: (_, item) => (
-        <div
-          style={{
-            backgroundColor:
-              item.quantity === 0
-                ? "red"
-                : item.quantity <= 5
-                ? "yellow"
-                : "inherit",
-            display: "inline-block",
-            padding: "15px",
-            borderRadius: "3px",
-          }}
-        >
-          {item.quantity}
-        </div>
-      ),
-    },
-    {
-      title: "Olish narxi",
-      key: "purchase_price",
-      render: (_, record) => {
-        const val = record.product_id?.purchase_price ?? 0;
-        const currency = record.product_id?.currency === "usd" ? "$" : "so'm";
-        return `${val.toFixed(0)}${currency}`;
-      },
-    },
-    {
-      title: "Sotish narxi",
-      key: "sell_price",
-      render: (_, record) => {
-        const val = record.product_id?.sell_price ?? 0;
-        const currency = record.product_id?.currency === "usd" ? "$" : "so'm";
-        return `${val.toFixed(0)}${currency}`;
-      },
-    },
-    {
-      title: "O'lchov birligi",
-      key: "count_type",
-      render: (_, item) => item?.product_id?.count_type,
-    },
-    {
-      title: "Kimdan kelgan",
-      key: "kimdan_kelgan",
-      render: (_, item) => item?.product_id?.kimdan_kelgan,
-    },
-    {
-      title: "QR Kod",
-      key: "qrcode",
-      render: (_, item) => (
-        <div>
-          <span>{item?.product_id?.barcode}</span>
-          <ReactToPrint
-            trigger={() => (
-              <Button type="primary" style={{ marginLeft: 10 }}>
-                <FaPrint /> Chop etish
-              </Button>
-            )}
-            content={() => printRef.current}
-            onBeforeGetContent={() => {
-              return new Promise((resolve) => {
-                setPrintData(preparePrintData(item));
-                setTimeout(resolve, 100);
-              });
-            }}
-          />
-        </div>
-      ),
-    },
-    {
-      title: "Amallar",
-      key: "actions",
-      render: (_, record) => (
-        <div>
-          <Button
-            type="primary"
-            style={{ marginRight: "10px" }}
-            onClick={() => showEditModal(record)}
-          >
-            <EditOutlined />
-          </Button>
-          <Button
-            type="primary"
-            style={{ marginRight: "10px" }}
-            onClick={() => {
-              setQuantityModal(true);
-              setSelectedQuantity(record._id);
-              reset({ quantity: record.quantity });
-            }}
-          >
-            <IoMdAdd />
-          </Button>
-          <Popconfirm
-            title="Haqiqatdan ham ushbu mahsulotni o'chirmoqchimisiz?"
-            onConfirm={() => handleDelete(record._id)}
-            okText="Ha"
-            cancelText="Yo'q"
-          >
-            <Button type="primary" danger>
-              <DeleteOutlined />
-            </Button>
-          </Popconfirm>
-        </div>
-      ),
-    },
-  ];
-
-  const showEditModal = (product) => {
-    setEditingProduct(product.product_id);
+  const showEditModal = (item) => {
+    const p = getProduct(item);
+    setEditingProduct(p);
     setIsEditModalVisible(true);
   };
 
@@ -261,8 +166,144 @@ export default function StoreItem() {
     );
   };
 
+  // ✅ COLUMNS (formatdan qat'i nazar ishlaydi)
+  const columns = [
+    {
+      title: "Maxsulot nomi",
+      key: "product_name",
+      render: (_, item) => getProduct(item)?.product_name,
+    },
+    {
+      title: "Modeli",
+      key: "modeli",
+      render: (_, item) => getProduct(item)?.model,
+    },
+    {
+      title: "Miqdor",
+      key: "quantity",
+      render: (_, item) => {
+        const qty = Number(getQty(item) || 0);
+        return (
+          <div
+            style={{
+              backgroundColor:
+                qty === 0 ? "red" : qty <= 5 ? "yellow" : "inherit",
+              display: "inline-block",
+              padding: "15px",
+              borderRadius: "3px",
+            }}
+          >
+            {qty}
+          </div>
+        );
+      },
+    },
+    {
+      title: "Olish narxi",
+      key: "purchase_price",
+      render: (_, item) => {
+        const p = getProduct(item);
+        const val = p?.purchase_price ?? 0;
+        const cur = p?.purchase_currency;
+        const currency = cur === "usd" ? "$" : "so'm";
+        return `${val.toFixed(0)}${currency}`;
+      },
+    },
+    {
+      title: "Sotish narxi",
+      key: "sell_price",
+      render: (_, item) => {
+        const p = getProduct(item);
+        const val = p?.sell_price ?? 0;
+        const cur = p?.sell_currency;
+        const currency = cur === "usd" ? "$" : "so'm";
+        return `${val.toFixed(0)}${currency}`;
+      },
+    },
+    {
+      title: "O'lchov birligi",
+      key: "count_type",
+      render: (_, item) => getProduct(item)?.count_type,
+    },
+    {
+      title: "Kimdan kelgan",
+      key: "kimdan_kelgan",
+      render: (_, item) => getProduct(item)?.kimdan_kelgan,
+    },
+    {
+      title: "QR Kod",
+      key: "qrcode",
+      render: (_, item) => {
+        const p = getProduct(item);
+        return (
+          <div>
+            <span>{p?.barcode}</span>
+            <ReactToPrint
+              trigger={() => (
+                <Button type="primary" style={{ marginLeft: 10 }}>
+                  <FaPrint /> Chop etish
+                </Button>
+              )}
+              content={() => printRef.current}
+              onBeforeGetContent={() =>
+                new Promise((resolve) => {
+                  setPrintData(preparePrintData(item));
+                  setTimeout(resolve, 100);
+                })
+              }
+            />
+          </div>
+        );
+      },
+    },
+    {
+      title: "Amallar",
+      key: "actions",
+      render: (_, item) => {
+        // agar Store format bo‘lsa amallar chiqadi, Product format bo‘lsa yashiramiz
+        if (!isStoreFormat) return null;
+
+        return (
+          <div>
+            <Button
+              type="primary"
+              style={{ marginRight: "10px" }}
+              onClick={() => showEditModal(item)}
+            >
+              <EditOutlined />
+            </Button>
+
+            <Button
+              type="primary"
+              style={{ marginRight: "10px" }}
+              onClick={() => {
+                setQuantityModal(true);
+                setSelectedQuantity(item._id);
+                reset({ quantity: item.quantity });
+              }}
+            >
+              <IoMdAdd />
+            </Button>
+
+            <Popconfirm
+              title="Haqiqatdan ham ushbu mahsulotni o'chirmoqchimisiz?"
+              onConfirm={() => handleDelete(item._id)}
+              okText="Ha"
+              cancelText="Yo'q"
+            >
+              <Button type="primary" danger>
+                <DeleteOutlined />
+              </Button>
+            </Popconfirm>
+          </div>
+        );
+      },
+    },
+  ];
+
   return (
     <div>
+      {/* PRINT TEMPLATE */}
       <div style={{ display: "none" }}>
         <div ref={printRef}>
           {printData && (
@@ -278,24 +319,12 @@ export default function StoreItem() {
               }}
             >
               <div
-                className="llllllll"
                 style={{
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "center",
                 }}
               >
-                {/* <p
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    fontSize: "22px",
-                    fontWeight: "900",
-                  }}
-                >
-                  Iproservice
-                </p> */}
                 <div style={{ textAlign: "center", marginBottom: "10px" }}>
                   <div style={{ fontSize: "18px", fontWeight: "bold" }}>
                     {printData.name}
@@ -304,21 +333,15 @@ export default function StoreItem() {
                     {printData.model}
                   </div>
                 </div>
-                <span> {printData.barcode}</span>
-                <div
-                  style={{
-                    fontSize: "20px",
-                    fontWeight: "900",
-                    transform: "translateY(5px)",
-                  }}
-                >
+
+                <span>{printData.barcode}</span>
+                <div style={{ fontSize: "20px", fontWeight: "900" }}>
                   <p>{printData.special_notes}</p>
                 </div>
               </div>
+
               <QRCodeSVG
-                style={{
-                  transform: "translateX(-10px)",
-                }}
+                style={{ transform: "translateX(-10px)" }}
                 value={printData.barcode}
                 size={60}
                 level="M"
@@ -329,9 +352,10 @@ export default function StoreItem() {
         </div>
       </div>
 
+      {/* UPDATE QUANTITY MODAL */}
       <Modal
         open={quantityModal}
-        footer={[]}
+        footer={null}
         title="Mahsulot sonini o'zgartirish"
         onCancel={() => setQuantityModal(false)}
       >
@@ -343,7 +367,6 @@ export default function StoreItem() {
             flexDirection: "column",
             gap: "12px",
           }}
-          className="modal_form"
           onSubmit={handleSubmit(submitModal)}
         >
           <input
@@ -355,7 +378,7 @@ export default function StoreItem() {
               border: "1px solid #ccc",
             }}
             type="number"
-            step="0.01" // bu qadamni aniqlaydi: 0.01 -> onliklar qo‘llab-quvvatlanadi
+            step="0.01"
             {...register("quantity")}
             placeholder="Mahsulot soni"
           />
@@ -374,6 +397,7 @@ export default function StoreItem() {
         </form>
       </Modal>
 
+      {/* FILTERS */}
       <div style={{ display: "flex", marginBottom: 20, gap: "10px" }}>
         <Input
           placeholder="Model, nomi bo'yicha qidirish"
@@ -387,6 +411,7 @@ export default function StoreItem() {
           onChange={(e) => setBarcodeSearch(e.target.value)}
           style={{ width: "200px" }}
         />
+
         <Select
           defaultValue="newlyAdded"
           style={{ width: 200 }}
@@ -397,20 +422,27 @@ export default function StoreItem() {
           <Option value="runningOut">Tugayotgan mahsulotlar</Option>
           <Option value="outOfStock">Tugagan mahsulotlar</Option>
         </Select>
+
         <Select
           style={{ width: 200 }}
           onChange={(value) => setSelectedKimdanKelgan(value)}
           allowClear
+          placeholder="Kimdan kelgan filter"
         >
           {uniqueKimdanKelgan.map((i) => (
-            <Option value={i}>{i}</Option>
+            <Option key={i} value={i}>
+              {i}
+            </Option>
           ))}
         </Select>
       </div>
 
+      {/* ADD PRODUCT */}
       <AddProductToStore refetchProducts={refetchStoreProducts} />
+
+      {/* TABLE */}
       <Table
-        dataSource={filteredStoreProducts}
+        dataSource={filteredList}
         loading={storeLoading}
         columns={columns}
         rowKey="_id"
@@ -418,6 +450,7 @@ export default function StoreItem() {
         scroll={{ x: "max-content" }}
       />
 
+      {/* EDIT MODAL */}
       <EditProductModal
         visible={isEditModalVisible}
         onCancel={handleEditComplete}

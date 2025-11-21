@@ -1,3 +1,4 @@
+// --- CODE START ---
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Button,
@@ -10,15 +11,13 @@ import {
   Select,
   AutoComplete,
   Divider,
+  InputNumber,
 } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
 
 import { useCreateProductToStoreMutation } from "../../context/service/store.service";
 import { useGetAllProductsQuery } from "../../context/service/addproduct.service";
-import {
-  useGetClientsQuery,
-  useCreateClientMutation,
-} from "../../context/service/client.service";
+import { useGetClientsQuery } from "../../context/service/client.service";
 
 const { Option } = Select;
 
@@ -32,14 +31,13 @@ const AddProductToStore = ({ refetchProducts }) => {
 
   const { data: allProducts } = useGetAllProductsQuery();
   const { data: clientsData, isLoading: clientsLoading } = useGetClientsQuery();
-  const [createClient] = useCreateClientMutation();
 
-  // Generate barcode
+  // Barcode generator
   const generateBarcode = useCallback(() => {
     return Math.floor(100000 + Math.random() * 900000).toString();
   }, []);
 
-  // On modal open -> generate barcode
+  // Modal ochilganda default values
   useEffect(() => {
     if (isModalOpen) {
       const code = generateBarcode();
@@ -47,23 +45,33 @@ const AddProductToStore = ({ refetchProducts }) => {
 
       form.setFieldsValue({
         barcode: code,
-        total_purchase_price: 0,
-        payment_amount: 0,
-        debt_amount: 0,
+        purchase_currency: "usd",
+        sell_currency: "usd",
+        count_type: "dona",
+
+        stock: 1,
+        purchase_price: 0,
+        sell_price: 0,
+        paid_amount: 0,
+
+        total_purchase_price_preview: 0,
+        supplier_debt_preview: 0,
       });
     }
   }, [isModalOpen, generateBarcode, form]);
 
-  // Normalize clients
+  // Clients list normalize
   const clientList = useMemo(() => {
     if (!clientsData) return [];
     if (Array.isArray(clientsData)) return clientsData;
     return clientsData.clients || clientsData.data || [];
   }, [clientsData]);
 
-  // Unique product attrs
-  const { productNames, models, brandNames } = useMemo(() => {
-    if (!allProducts) return { productNames: [], models: [], brandNames: [] };
+  // Existing products for autocomplete
+  const { productNames, models, brandNames, countTypes } = useMemo(() => {
+    if (!allProducts)
+      return { productNames: [], models: [], brandNames: [], countTypes: [] };
+
     const list = Array.isArray(allProducts)
       ? allProducts
       : allProducts.products || [];
@@ -74,10 +82,11 @@ const AddProductToStore = ({ refetchProducts }) => {
       ],
       models: [...new Set(list.map((p) => p.model).filter(Boolean))],
       brandNames: [...new Set(list.map((p) => p.brand_name).filter(Boolean))],
+      countTypes: [...new Set(list.map((p) => p.count_type).filter(Boolean))],
     };
   }, [allProducts]);
 
-  // Client options
+  // Supplier options
   const clientOptions = useMemo(() => {
     return clientList.map((c) => ({
       value: c.name,
@@ -95,7 +104,7 @@ const AddProductToStore = ({ refetchProducts }) => {
     }));
   }, [clientList]);
 
-  // When selecting client
+  // Supplier tanlanganda phone/address autopaste
   const handleClientSelect = useCallback(
     (value) => {
       const found = clientList.find((c) => c.name === value);
@@ -109,93 +118,89 @@ const AddProductToStore = ({ refetchProducts }) => {
     [clientList, form]
   );
 
-  // Compute total + debt
+  /**
+   * Supplier debt preview:
+   * total_purchase = stock * purchase_price
+   * remaining_debt = total_purchase - paid_amount
+   */
   const computeTotals = useCallback(() => {
     const stock = Number(form.getFieldValue("stock") || 0);
     const purchasePrice = Number(form.getFieldValue("purchase_price") || 0);
-    const total = stock * purchasePrice;
+    const paid = Number(form.getFieldValue("paid_amount") || 0);
 
-    const paid = Number(form.getFieldValue("payment_amount") || 0);
-    const debt = total - paid;
+    const totalPurchase = stock * purchasePrice;
+    const debt = totalPurchase - paid;
 
     form.setFieldsValue({
-      total_purchase_price: total,
-      debt_amount: debt < 0 ? 0 : debt,
+      total_purchase_price_preview: totalPurchase,
+      supplier_debt_preview: debt > 0 ? debt : 0,
     });
   }, [form]);
 
-  // Compute when modal opens
   useEffect(() => {
     if (isModalOpen) computeTotals();
   }, [isModalOpen, computeTotals]);
 
-  // Regenerate barcode
   const handleBarcodeRegenerate = useCallback(() => {
     const code = generateBarcode();
     setBarcode(code);
     form.setFieldsValue({ barcode: code });
   }, [generateBarcode, form]);
 
-  // Submit
+  // SUBMIT
   const handleSubmit = useCallback(
     async (values) => {
       try {
-        let client_id = null;
+        const trimmedName = values.client_name?.trim();
 
-        const trimmedName = values.client_name?.trim() || "";
+        // Supplier object (type yo‘q!)
+        const supplierObj =
+          trimmedName || values.client_phone || values.client_address
+            ? {
+                name: trimmedName || "Noma'lum",
+                phone: values.client_phone?.trim() || "",
+                address: values.client_address?.trim() || "",
+              }
+            : null;
 
-        let existing = clientList.find(
-          (c) => c.name.trim().toLowerCase() === trimmedName.toLowerCase()
-        );
-
-        if (existing) {
-          client_id = existing._id;
-        } else {
-          // Create new client
-          const res = await createClient({
-            name: trimmedName,
-            phone: values.client_phone?.trim(),
-            address: values.client_address?.trim(),
-          }).unwrap();
-
-          client_id = res.client?._id || res._id;
-        }
-
-        // Build payload
         const payload = {
           barcode: values.barcode,
           product_name: values.product_name,
           model: values.model,
-          stock: Number(values.stock),
-          purchase_price: Number(values.purchase_price),
-          sell_price: Number(values.sell_price),
-          purchase_currency: values.currency,
-          sell_currency: values.currency,
-          total_purchase_price: Number(values.total_purchase_price),
-          payment_amount: Number(values.payment_amount),
-          debt_amount: Number(values.debt_amount),
-          brand_name: values.brand_name,
-          client_id,
+
+          stock: Math.max(1, Number(values.stock || 1)),
+
+          purchase_price: Number(values.purchase_price || 0),
+          sell_price: Number(values.sell_price || 0),
+          purchase_currency: values.purchase_currency,
+          sell_currency: values.sell_currency,
+
+          brand_name: values.brand_name || "",
+          count_type: values.count_type,
+
+          paid_amount: Number(values.paid_amount || 0),
+
+          special_notes: values.special_notes || "",
+          kimdan_kelgan: values.kimdan_kelgan || "",
+
+          client: supplierObj, // backendda supplier sifatida ishlaydi
         };
 
         await createProduct(payload).unwrap();
 
-        message.success("Mahsulot muvaffaqiyatli qo'shildi!");
-
+        message.success("Mahsulot qo'shildi!");
         setIsModalOpen(false);
         form.resetFields();
         setBarcode("");
-
         refetchProducts && refetchProducts();
       } catch (err) {
         console.log(err);
         message.error(err?.data?.message || "Xatolik yuz berdi!");
       }
     },
-    [clientList, createClient, createProduct, form, refetchProducts]
+    [createProduct, form, refetchProducts]
   );
 
-  // Close modal
   const handleModalClose = useCallback(() => {
     setIsModalOpen(false);
     form.resetFields();
@@ -214,7 +219,7 @@ const AddProductToStore = ({ refetchProducts }) => {
           marginBottom: 12,
         }}
       >
-        Dokonga Mahsulot qo'shish +
+        Dokonga mahsulot qo'shish +
       </Button>
 
       <Modal
@@ -256,7 +261,7 @@ const AddProductToStore = ({ refetchProducts }) => {
               <Form.Item
                 name="product_name"
                 label="Mahsulot nomi"
-                rules={[{ required: true }]}
+                rules={[{ required: true, message: "Mahsulot nomi majburiy" }]}
               >
                 <AutoComplete
                   options={productNames.map((v) => ({ value: v }))}
@@ -268,108 +273,180 @@ const AddProductToStore = ({ refetchProducts }) => {
               <Form.Item
                 name="model"
                 label="Model"
-                rules={[{ required: true }]}
+                rules={[{ required: true, message: "Model majburiy" }]}
               >
                 <AutoComplete options={models.map((v) => ({ value: v }))} />
               </Form.Item>
             </Col>
           </Row>
 
+          {/* COUNT TYPE + STOCK */}
           <Row gutter={16}>
-            <Col span={8}>
+            <Col span={12}>
+              <Form.Item
+                name="count_type"
+                label="O'lchov birligi"
+                rules={[
+                  { required: true, message: "O'lchov birligi majburiy" },
+                ]}
+              >
+                <AutoComplete
+                  options={[
+                    ...countTypes.map((v) => ({ value: v })),
+                    { value: "dona" },
+                    { value: "kg" },
+                    { value: "litr" },
+                    { value: "metr" },
+                    { value: "qadoq" },
+                    { value: "blok" },
+                  ]}
+                  placeholder="dona / kg / litr / ..."
+                />
+              </Form.Item>
+            </Col>
+
+            <Col span={12}>
               <Form.Item
                 name="stock"
                 label="Miqdor"
-                rules={[{ required: true }]}
+                rules={[
+                  { required: true, message: "Miqdor majburiy" },
+                  {
+                    type: "number",
+                    min: 1,
+                    message: "Miqdor kamida 1 bo‘lsin",
+                  },
+                ]}
+                initialValue={1}
               >
-                <Input type="number" onChange={computeTotals} />
-              </Form.Item>
-            </Col>
-
-            <Col span={8}>
-              <Form.Item
-                name="purchase_price"
-                label="Tannarx (1 dona)"
-                rules={[{ required: true }]}
-              >
-                <Input type="number" onChange={computeTotals} />
-              </Form.Item>
-            </Col>
-
-            <Col span={8}>
-              <Form.Item name="total_purchase_price" label="Umumiy tannarx">
-                <Input disabled />
+                <InputNumber
+                  min={1}
+                  style={{ width: "100%" }}
+                  onChange={computeTotals}
+                />
               </Form.Item>
             </Col>
           </Row>
 
-          {/* PAYMENT BLOCK */}
-          <Divider />
-
-          <h3>To'lov ma'lumotlari</h3>
-
+          {/* PRICES */}
           <Row gutter={16}>
             <Col span={8}>
               <Form.Item
-                name="payment_amount"
-                label="To'langan summa"
-                initialValue={0}
+                name="purchase_price"
+                label="Tannarx (1 dona)"
+                rules={[{ required: true, message: "Tannarx majburiy" }]}
               >
-                <Input type="number" onChange={computeTotals} />
+                <InputNumber
+                  min={0}
+                  style={{ width: "100%" }}
+                  onChange={computeTotals}
+                />
               </Form.Item>
             </Col>
 
             <Col span={8}>
-              <Form.Item name="debt_amount" label="Qolgan qarz">
+              <Form.Item
+                name="total_purchase_price_preview"
+                label="Umumiy tannarx (preview)"
+              >
                 <Input disabled />
               </Form.Item>
             </Col>
 
             <Col span={8}>
-              <Form.Item name="currency" label="Valyuta" initialValue="usd">
+              <Form.Item
+                name="purchase_currency"
+                label="Olish valyutasi"
+                initialValue="usd"
+                rules={[{ required: true }]}
+              >
                 <Select>
-                  <Option value="usd">USD ($)</Option>
+                  <Option value="usd">USD</Option>
                   <Option value="sum">SUM</Option>
                 </Select>
               </Form.Item>
             </Col>
           </Row>
 
-          {/* SELL PRICE */}
+          <Divider />
+          <h3>To‘lov ma'lumotlari (Supplier)</h3>
+
+          <Row gutter={16}>
+            <Col span={8}>
+              <Form.Item
+                name="paid_amount"
+                label="To‘langan summa"
+                initialValue={0}
+              >
+                <InputNumber
+                  min={0}
+                  style={{ width: "100%" }}
+                  onChange={computeTotals}
+                />
+              </Form.Item>
+            </Col>
+
+            <Col span={8}>
+              <Form.Item
+                name="supplier_debt_preview"
+                label="Qolgan qarz (preview)"
+              >
+                <Input disabled />
+              </Form.Item>
+            </Col>
+          </Row>
+
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item
                 name="sell_price"
-                label="Sotish narxi"
-                rules={[{ required: true }]}
+                label="Sotish narxi (1 dona)"
+                rules={[{ required: true, message: "Sotish narxi majburiy" }]}
               >
-                <Input type="number" />
+                <InputNumber min={0} style={{ width: "100%" }} />
               </Form.Item>
             </Col>
 
+            <Col span={12}>
+              <Form.Item
+                name="sell_currency"
+                label="Sotish valyutasi"
+                initialValue="usd"
+                rules={[{ required: true }]}
+              >
+                <Select>
+                  <Option value="usd">USD</Option>
+                  <Option value="sum">SUM</Option>
+                </Select>
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={16}>
             <Col span={12}>
               <Form.Item name="brand_name" label="Brand">
                 <AutoComplete options={brandNames.map((v) => ({ value: v }))} />
               </Form.Item>
             </Col>
+
+            <Col span={12}>
+              <Form.Item name="special_notes" label="Izoh">
+                <Input />
+              </Form.Item>
+            </Col>
           </Row>
 
-          {/* CLIENT */}
           <Divider />
-
-          <h3>Kimdan kelgan (Ta'minotchi)</h3>
+          <h3>Kimdan kelgan (Supplier)</h3>
 
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item
-                name="client_name"
-                label="Ism"
-                rules={[{ required: true }]}
-              >
+              <Form.Item name="client_name" label="Ism">
                 <AutoComplete
                   options={clientOptions}
                   onSelect={handleClientSelect}
                   loading={clientsLoading}
+                  placeholder="Supplier tanlang yoki yozing"
                 />
               </Form.Item>
             </Col>
@@ -379,11 +456,19 @@ const AddProductToStore = ({ refetchProducts }) => {
                 <Input />
               </Form.Item>
             </Col>
-          </Row>
 
-          <Form.Item name="client_address" label="Manzil">
-            <Input />
-          </Form.Item>
+            <Col span={24}>
+              <Form.Item name="client_address" label="Manzil">
+                <Input />
+              </Form.Item>
+            </Col>
+
+            <Col span={24}>
+              <Form.Item name="kimdan_kelgan" label="Kimdan kelgan (matn)">
+                <Input placeholder="Ixtiyoriy" />
+              </Form.Item>
+            </Col>
+          </Row>
 
           <Divider />
 
@@ -405,3 +490,4 @@ const AddProductToStore = ({ refetchProducts }) => {
 };
 
 export default AddProductToStore;
+// --- CODE END ---

@@ -2,7 +2,9 @@ import { apiSlice } from "./api.service";
 
 export const clientApi = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
-    // ==== GET ALL CLIENTS ====
+    // ============================
+    //       GET ALL CLIENTS
+    // ============================
     getClients: builder.query({
       query: () => ({
         url: "/clients",
@@ -11,7 +13,9 @@ export const clientApi = apiSlice.injectEndpoints({
       providesTags: ["Clients"],
     }),
 
-    // ==== GET CLIENT BY ID ====
+    // ============================
+    //       GET CLIENT BY ID
+    // ============================
     getClientById: builder.query({
       query: (id) => ({
         url: `/clients/${id}`,
@@ -20,7 +24,9 @@ export const clientApi = apiSlice.injectEndpoints({
       providesTags: (result, error, id) => [{ type: "Clients", id }],
     }),
 
-    // ==== CREATE CLIENT ====
+    // ============================
+    //        CREATE CLIENT
+    // ============================
     createClient: builder.mutation({
       query: (clientData) => ({
         url: "/clients",
@@ -30,7 +36,9 @@ export const clientApi = apiSlice.injectEndpoints({
       invalidatesTags: ["Clients"],
     }),
 
-    // ==== UPDATE CLIENT ====
+    // ============================
+    //        UPDATE CLIENT
+    // ============================
     updateClient: builder.mutation({
       query: ({ id, ...data }) => ({
         url: `/clients/${id}`,
@@ -43,13 +51,47 @@ export const clientApi = apiSlice.injectEndpoints({
       ],
     }),
 
-    // ==== DELETE CLIENT ====
+    // ============================
+    //        DELETE CLIENT
+    // ============================
     deleteClient: builder.mutation({
       query: (id) => ({
         url: `/clients/${id}`,
         method: "DELETE",
       }),
       invalidatesTags: ["Clients"],
+    }),
+
+    // ============================
+    //        ADD CLIENT DEBT
+    //  POST /clients/:id/debt
+    // ============================
+    addClientDebt: builder.mutation({
+      query: ({ id, ...data }) => ({
+        url: `/clients/${id}/debt`,
+        method: "POST",
+        body: data,
+      }),
+      invalidatesTags: (result, error, { id }) => [
+        "Clients",
+        { type: "Clients", id },
+      ],
+    }),
+
+    // ============================
+    //        PAY CLIENT DEBT
+    //  POST /clients/:id/pay
+    // ============================
+    payClientDebt: builder.mutation({
+      query: ({ id, amount, side }) => ({
+        url: `/clients/${id}/pay`,
+        method: "POST",
+        body: { amount, side },
+      }),
+      invalidatesTags: (result, error, { id }) => [
+        "Clients",
+        { type: "Clients", id },
+      ],
     }),
   }),
 });
@@ -60,4 +102,8 @@ export const {
   useCreateClientMutation,
   useUpdateClientMutation,
   useDeleteClientMutation,
+
+  // new hooks ↓↓↓
+  useAddClientDebtMutation,
+  usePayClientDebtMutation,
 } = clientApi;

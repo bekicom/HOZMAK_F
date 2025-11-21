@@ -53,6 +53,10 @@ import { FaPrint } from "react-icons/fa";
 import { BiTransfer } from "react-icons/bi";
 import MastersModal from "../../components/masters/MastersModal";
 
+// ✅ YANGI: Yetkazibberuvchi/Clientlar sahifasi
+import Yetkazibberuvchi from "../Yetkazib beruvchi/Yetkazibberuvchi";
+// agar sizda boshqa path bo‘lsa, shu importni o‘zgartiring.
+
 export const Admin = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -85,10 +89,8 @@ export const Admin = () => {
   const [searchText, setSearchText] = useState("");
   const [stockFilter, setStockFilter] = useState("all");
 
-  // === YANGI MUHIM QISM: DATA → MASSIVGA AYLANTIRILADI ===
   const list = Array.isArray(data) ? data : data?.products || [];
 
-  // === PROFIT HISOBLASH ===
   useEffect(() => {
     if (list.length > 0) {
       const profit = list.reduce((acc, product) => {
@@ -130,7 +132,6 @@ export const Admin = () => {
 
   const reversedData = [...filteredData].reverse();
 
-  // Barcode generator
   useEffect(() => {
     if (isModalOpen) {
       const code = Math.floor(100000 + Math.random() * 900000).toString();
@@ -154,7 +155,6 @@ export const Admin = () => {
     }
   };
 
-  // Transfer Modal
   const showTransferModal = (product) => {
     setSelectedProduct(product);
     setIsTransferModalOpen(true);
@@ -165,7 +165,6 @@ export const Admin = () => {
     setIsTransferModalOpen(false);
   };
 
-  // PRODUCT TRANSFER TO STORE
   const handleAddToStore = async (values) => {
     try {
       await addProductToStore({
@@ -181,7 +180,6 @@ export const Admin = () => {
     }
   };
 
-  // Modal column definitions
   const columns = [
     { title: "Mahsulot nomi", dataIndex: "product_name" },
     { title: "Model", dataIndex: "model" },
@@ -211,7 +209,6 @@ export const Admin = () => {
       dataIndex: "sell_price",
       render: (p) => p.toFixed(2),
     },
-
     {
       title: "Shtrix kod",
       dataIndex: "barcode",
@@ -226,7 +223,6 @@ export const Admin = () => {
         </Button>
       ),
     },
-
     {
       title: "Amallar",
       render: (_, record) => (
@@ -267,6 +263,13 @@ export const Admin = () => {
         {access?.dokon && (
           <Tabs.TabPane tab={<Button type="primary">Dokon</Button>} key="1">
             <StoreItem />
+          </Tabs.TabPane>
+        )}
+
+        {/* ✅ YANGI TAB: Yetkazibberuvchi / Clientlar */}
+        {access?.yetkazibberuvchi && (
+          <Tabs.TabPane tab={<Button>Yetkazibberuvchi</Button>} key="2">
+            <Yetkazibberuvchi />
           </Tabs.TabPane>
         )}
 

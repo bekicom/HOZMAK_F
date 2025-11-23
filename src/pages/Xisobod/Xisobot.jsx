@@ -59,6 +59,77 @@ export default function Xisobot() {
     harajatLoading ||
     usdLoading;
 
+  // API responselarini normalize qilish
+  const normalizedData = useMemo(() => {
+    // Sklad ma'lumotlarini normalize qilish
+    let normalizedSklad = [];
+    if (skladData) {
+      if (Array.isArray(skladData)) {
+        normalizedSklad = skladData;
+      } else if (skladData.products) {
+        normalizedSklad = skladData.products;
+      } else if (skladData.data) {
+        normalizedSklad = skladData.data;
+      }
+    }
+
+    // Store ma'lumotlarini normalize qilish
+    let normalizedStore = [];
+    if (storeData) {
+      if (Array.isArray(storeData)) {
+        normalizedStore = storeData;
+      } else if (storeData.products) {
+        normalizedStore = storeData.products;
+      } else if (storeData.data) {
+        normalizedStore = storeData.data;
+      }
+    }
+
+    // Debt ma'lumotlarini normalize qilish
+    let normalizedDebt = [];
+    if (debtData) {
+      if (Array.isArray(debtData)) {
+        normalizedDebt = debtData;
+      } else if (debtData.debtors) {
+        normalizedDebt = debtData.debtors;
+      } else if (debtData.data) {
+        normalizedDebt = debtData.data;
+      }
+    }
+
+    // Sale ma'lumotlarini normalize qilish
+    let normalizedSale = [];
+    if (saleData) {
+      if (Array.isArray(saleData)) {
+        normalizedSale = saleData;
+      } else if (saleData.sales) {
+        normalizedSale = saleData.sales;
+      } else if (saleData.data) {
+        normalizedSale = saleData.data;
+      }
+    }
+
+    // Harajat ma'lumotlarini normalize qilish
+    let normalizedHarajat = [];
+    if (harajatData) {
+      if (Array.isArray(harajatData)) {
+        normalizedHarajat = harajatData;
+      } else if (harajatData.expenses) {
+        normalizedHarajat = harajatData.expenses;
+      } else if (harajatData.data) {
+        normalizedHarajat = harajatData.data;
+      }
+    }
+
+    return {
+      sklad: normalizedSklad,
+      store: normalizedStore,
+      debt: normalizedDebt,
+      sale: normalizedSale,
+      harajat: normalizedHarajat,
+    };
+  }, [skladData, storeData, debtData, saleData, harajatData]);
+
   const handleDateChange = (dates) => {
     setSelectedRange(dates || []);
   };
@@ -71,7 +142,7 @@ export default function Xisobot() {
 
   // Optimallashtirilgan hisoblashlar useMemo bilan
   const calculations = useMemo(() => {
-    if (isLoading || !debtData || !saleData) {
+    if (isLoading) {
       return {
         umumiyDebt: 0,
         umumiyDebtUzs: 0,
@@ -87,6 +158,8 @@ export default function Xisobot() {
       };
     }
 
+    const { sklad, store, debt, sale, harajat } = normalizedData;
+
     const startDate = selectedRange[0]
       ? new Date(selectedRange[0].startOf("day"))
       : null;
@@ -96,6 +169,7 @@ export default function Xisobot() {
 
     // Sana filtri funksiyasi
     const isInDateRange = (itemDate) => {
+      if (!itemDate) return false;
       const date = new Date(itemDate);
       return (!startDate || date >= startDate) && (!endDate || date <= endDate);
     };
@@ -106,10 +180,10 @@ export default function Xisobot() {
     };
 
     // Qarzdorlikni hisoblash
-    const filteredUsdDebt = debtData.filter(
+    const filteredUsdDebt = debt.filter(
       (item) => isInDateRange(item.createdAt) && isUsdCurrency(item.currency)
     );
-    const filteredUzsDebt = debtData.filter(
+    const filteredUzsDebt = debt.filter(
       (item) => isInDateRange(item.createdAt) && !isUsdCurrency(item.currency)
     );
 
@@ -124,11 +198,11 @@ export default function Xisobot() {
 
     // Sotuv summasini hisoblash
     const filteredSalesSum =
-      saleData?.filter(
+      sale?.filter(
         (item) => isInDateRange(item.createdAt) && !isUsdCurrency(item.currency)
       ) || [];
     const filteredSalesUsd =
-      saleData?.filter(
+      sale?.filter(
         (item) => isInDateRange(item.createdAt) && isUsdCurrency(item.currency)
       ) || [];
 
@@ -172,61 +246,59 @@ export default function Xisobot() {
     }, 0);
 
     // Sklad foyda
-    const skladProfit =
-      skladData?.reduce((sum, item) => {
-        const stock = item.stock || 0;
-        const sellPrice = item.sell_price || 0;
-        const purchasePrice = item.purchase_price || 0;
-        const multiplier = isUsdCurrency(item.sell_currency) ? currentRate : 1;
-        return sum + stock * (sellPrice - purchasePrice) * multiplier;
-      }, 0) || 0;
+    const skladProfit = sklad.reduce((sum, item) => {
+      const stock = item.stock || 0;
+      const sellPrice = item.sell_price || 0;
+      const purchasePrice = item.purchase_price || 0;
+      const currency = item.sell_currency || item.purchase_currency || "usd";
+      const multiplier = isUsdCurrency(currency) ? currentRate : 1;
+      return sum + stock * (sellPrice - purchasePrice) * multiplier;
+    }, 0);
 
     // Do'kon foyda
-    const storeProfit =
-      storeData?.reduce((sum, item) => {
-        const quantity = item.quantity || 0;
-        const sellPrice = item.product_id?.sell_price || 0;
-        const purchasePrice = item.product_id?.purchase_price || 0;
-        const multiplier = isUsdCurrency(item.product_id?.sell_currency)
-          ? currentRate
-          : 1;
-        return sum + quantity * (sellPrice - purchasePrice) * multiplier;
-      }, 0) || 0;
+    const storeProfit = store.reduce((sum, item) => {
+      const quantity = item.quantity || 0;
+      const product = item.product_id || item;
+      const sellPrice = product?.sell_price || 0;
+      const purchasePrice = product?.purchase_price || 0;
+      const currency =
+        product?.sell_currency || product?.purchase_currency || "usd";
+      const multiplier = isUsdCurrency(currency) ? currentRate : 1;
+      return sum + quantity * (sellPrice - purchasePrice) * multiplier;
+    }, 0);
 
     // Harajat
     const totalExpenses =
-      harajatData
+      harajat
         ?.filter((item) => isInDateRange(item.created_at))
         .reduce((sum, item) => sum + (item.payment_summ || 0), 0) || 0;
 
     // Astatka hisoblash
-    const astatkaUsd =
-      storeData.reduce(
-        (sum, item) =>
-          sum +
-          (item.quantity || 0) *
-            (item.product_id.currency === "sum"
-              ? item.product_id?.purchase_price / usdRate?.rate
-              : item.product_id?.purchase_price),
-        0
-      ) || 0;
+    const astatkaUsd = store.reduce((sum, item) => {
+      const product = item.product_id || item;
+      const quantity = item.quantity || 0;
+      const purchasePrice = product?.purchase_price || 0;
+      const currency = product?.purchase_currency || "usd";
 
-    const astatkaUzs =
-      // (skladData
-      //   ?.filter((item) => !isUsdCurrency(item.sell_currency))
-      //   .reduce(
-      //     (sum, item) => sum + (item.stock || 0) * (item.purchase_price || 0),
-      //     0
-      //   ) || 0) +
-      storeData.reduce(
-        (sum, item) =>
-          sum +
-          (item.quantity || 0) *
-            (item.product_id.currency === "usd"
-              ? item.product_id?.purchase_price * usdRate?.rate
-              : item.product_id?.purchase_price),
-        0
-      ) || 0;
+      if (currency === "sum") {
+        return sum + (quantity * purchasePrice) / currentRate;
+      } else {
+        return sum + quantity * purchasePrice;
+      }
+    }, 0);
+
+    const astatkaUzs = store.reduce((sum, item) => {
+      const product = item.product_id || item;
+      const quantity = item.quantity || 0;
+      const purchasePrice = product?.purchase_price || 0;
+      const currency = product?.purchase_currency || "usd";
+
+      if (currency === "usd") {
+        return sum + quantity * purchasePrice * currentRate;
+      } else {
+        return sum + quantity * purchasePrice;
+      }
+    }, 0);
 
     return {
       umumiyDebt: usdDebt,
@@ -241,16 +313,7 @@ export default function Xisobot() {
       umumiyAstatka: astatkaUsd,
       umumiyAstatkaUzs: astatkaUzs,
     };
-  }, [
-    debtData,
-    saleData,
-    skladData,
-    storeData,
-    harajatData,
-    selectedRange,
-    currentRate,
-    isLoading,
-  ]);
+  }, [normalizedData, selectedRange, currentRate, isLoading]);
 
   // Raqam formatlash
   const formatNumber = (num) => {

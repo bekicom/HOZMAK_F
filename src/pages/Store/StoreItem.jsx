@@ -41,6 +41,7 @@ export default function StoreItem() {
   const { register, handleSubmit, reset } = useForm();
 
   const [printData, setPrintData] = useState(null);
+  
   const printRef = useRef();
 
   useEffect(() => {
@@ -113,7 +114,7 @@ export default function StoreItem() {
   const preparePrintData = (item) => {
     const p = getProduct(item);
     const priceVal = p?.sell_price ?? 0;
-    const priceCurrency = p?.sell_currency === "usd" ? "$" : "so'm";
+    const priceCurrency = p?.purchase_currency === "usd" ? "$" : "so'm"; // purchase_currency ga o'zgardi
 
     return {
       name: p?.product_name ?? "Noma'lum",
@@ -166,6 +167,16 @@ export default function StoreItem() {
     );
   };
 
+  // ✅ Valyuta formatlash funksiyasi
+  const formatPrice = (price, currency) => {
+    if (currency === "usd") {
+      return `$${Number(price).toFixed(0)}`;
+    } else if (currency === "sum") {
+      return `${Number(price).toFixed(0)} so'm`;
+    }
+    return `${Number(price).toFixed(0)}`;
+  };
+
   // ✅ COLUMNS (formatdan qat'i nazar ishlaydi)
   const columns = [
     {
@@ -203,10 +214,9 @@ export default function StoreItem() {
       key: "purchase_price",
       render: (_, item) => {
         const p = getProduct(item);
-        const val = p?.purchase_price ?? 0;
-        const cur = p?.purchase_currency;
-        const currency = cur === "usd" ? "$" : "so'm";
-        return `${val.toFixed(0)}${currency}`;
+        const price = p?.purchase_price ?? 0;
+        const currency = p?.purchase_currency ?? "usd"; // purchase_currency dan foydalanish
+        return formatPrice(price, currency);
       },
     },
     {
@@ -214,10 +224,9 @@ export default function StoreItem() {
       key: "sell_price",
       render: (_, item) => {
         const p = getProduct(item);
-        const val = p?.sell_price ?? 0;
-        const cur = p?.sell_currency;
-        const currency = cur === "usd" ? "$" : "so'm";
-        return `${val.toFixed(0)}${currency}`;
+        const price = p?.sell_price ?? 0;
+        const currency = p?.purchase_currency ?? "usd"; // Sotish narxi ham purchase_currency ga qarab
+        return formatPrice(price, currency);
       },
     },
     {
@@ -225,11 +234,7 @@ export default function StoreItem() {
       key: "count_type",
       render: (_, item) => getProduct(item)?.count_type,
     },
-    {
-      title: "Kimdan kelgan",
-      key: "kimdan_kelgan",
-      render: (_, item) => getProduct(item)?.kimdan_kelgan,
-    },
+  
     {
       title: "QR Kod",
       key: "qrcode",
@@ -237,7 +242,6 @@ export default function StoreItem() {
         const p = getProduct(item);
         return (
           <div>
-            <span>{p?.barcode}</span>
             <ReactToPrint
               trigger={() => (
                 <Button type="primary" style={{ marginLeft: 10 }}>
@@ -260,7 +264,7 @@ export default function StoreItem() {
       title: "Amallar",
       key: "actions",
       render: (_, item) => {
-        // agar Store format bo‘lsa amallar chiqadi, Product format bo‘lsa yashiramiz
+        // agar Store format bo'lsa amallar chiqadi, Product format bo'lsa yashiramiz
         if (!isStoreFormat) return null;
 
         return (
@@ -323,27 +327,32 @@ export default function StoreItem() {
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "center",
+                  marginLeft: "60px",
                 }}
               >
                 <div style={{ textAlign: "center", marginBottom: "10px" }}>
-                  <div style={{ fontSize: "18px", fontWeight: "bold" }}>
+                  <div style={{ fontSize: "25px", fontWeight: "bold" }}>
                     {printData.name}
                   </div>
-                  <div style={{ fontSize: "22px", fontWeight: "bold" }}>
+                  <div style={{ fontSize: "25px", fontWeight: "bold" }}>
                     {printData.model}
+                    {printData.sell_price}
                   </div>
                 </div>
 
-                <span>{printData.barcode}</span>
-                <div style={{ fontSize: "20px", fontWeight: "900" }}>
+                <div style={{ fontSize: "25px", fontWeight: "900" }}>
                   <p>{printData.special_notes}</p>
+                </div>
+                <div style={{ fontSize: "25px", fontWeight: "900" }}>
+                  <p>{printData.sell_price}</p>
+                  
                 </div>
               </div>
 
               <QRCodeSVG
-                style={{ transform: "translateX(-10px)" }}
+                style={{ transform: "translateX(-10px)", marginRight: "30px" }}
                 value={printData.barcode}
-                size={60}
+                size={80}
                 level="M"
                 includeMargin={false}
               />
@@ -398,20 +407,25 @@ export default function StoreItem() {
       </Modal>
 
       {/* FILTERS */}
-      <div style={{ display: "flex", marginBottom: 20, gap: "10px" }}>
+      {/* FILTERS */}
+      <div
+        style={{
+          display: "flex",
+          marginBottom: 20,
+          gap: "10px",
+          alignItems: "center",
+        }}
+      >
+        {/* 1. Search input */}
         <Input
-          placeholder="Model, nomi bo'yicha qidirish"
+          placeholder="🔍 Model, nomi bo'yicha qidirish"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          style={{ width: "200px" }}
-        />
-        <Input
-          placeholder="Shtrix kod bo'yicha qidirish"
-          value={barcodeSearch}
-          onChange={(e) => setBarcodeSearch(e.target.value)}
-          style={{ width: "200px" }}
+          style={{ width: "200px", color: "#000" }}
+          allowClear
         />
 
+        {/* 3. Stock filter */}
         <Select
           defaultValue="newlyAdded"
           style={{ width: 200 }}
@@ -421,19 +435,6 @@ export default function StoreItem() {
           <Option value="all">Barcha mahsulotlar</Option>
           <Option value="runningOut">Tugayotgan mahsulotlar</Option>
           <Option value="outOfStock">Tugagan mahsulotlar</Option>
-        </Select>
-
-        <Select
-          style={{ width: 200 }}
-          onChange={(value) => setSelectedKimdanKelgan(value)}
-          allowClear
-          placeholder="Kimdan kelgan filter"
-        >
-          {uniqueKimdanKelgan.map((i) => (
-            <Option key={i} value={i}>
-              {i}
-            </Option>
-          ))}
         </Select>
       </div>
 

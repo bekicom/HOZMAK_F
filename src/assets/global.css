@@ -34,6 +34,9 @@ input[type="number"] {
 button {
   cursor: pointer;
 }
+::placeholder{
+  color: #0000004d;
+}
 
 .page {
   width: 100%;

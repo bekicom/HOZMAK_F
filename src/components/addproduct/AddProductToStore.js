@@ -92,12 +92,11 @@ const AddProductToStore = ({ refetchProducts }) => {
       form.setFieldsValue({
         barcode: code,
         purchase_currency: "usd",
-        sell_currency: "usd",
         count_type: "dona",
-        stock: 1,
-        purchase_price: 0,
-        sell_price: 0,
-        paid_amount: 0,
+        // stock: 1,
+        // purchase_price: 0,
+        // sell_price: 0,
+        // paid_amount: 0,
         total_purchase_price: 0,
         supplier_debt: 0,
       });
@@ -105,9 +104,9 @@ const AddProductToStore = ({ refetchProducts }) => {
   }, [isModalOpen, generateBarcode, form]);
 
   // Existing products for autocomplete
-  const { productNames, models, brandNames, countTypes } = useMemo(() => {
+  const { productNames, models, countTypes } = useMemo(() => {
     if (!allProducts?.length) {
-      return { productNames: [], models: [], brandNames: [], countTypes: [] };
+      return { productNames: [], models: [], countTypes: [] };
     }
 
     return {
@@ -115,9 +114,6 @@ const AddProductToStore = ({ refetchProducts }) => {
         ...new Set(allProducts.map((p) => p.product_name).filter(Boolean)),
       ],
       models: [...new Set(allProducts.map((p) => p.model).filter(Boolean))],
-      brandNames: [
-        ...new Set(allProducts.map((p) => p.brand_name).filter(Boolean)),
-      ],
       countTypes: [
         ...new Set(allProducts.map((p) => p.count_type).filter(Boolean)),
       ],
@@ -204,7 +200,7 @@ const AddProductToStore = ({ refetchProducts }) => {
                 name: supplierName || "Noma'lum supplier",
                 phone: supplierPhone || "",
                 address: supplierAddress || "",
-                type: "supplier", // IMPORTANT: type qo'shildi
+                type: "supplier",
               }
             : null;
 
@@ -221,14 +217,11 @@ const AddProductToStore = ({ refetchProducts }) => {
           purchase_price: Number(values.purchase_price || 0),
           sell_price: Number(values.sell_price || 0),
           purchase_currency: values.purchase_currency,
-          sell_currency: values.sell_currency,
-          brand_name: values.brand_name || "",
+          // sell_currency olib tashlandi - backend o'zi boshqaradi
           count_type: values.count_type,
           paid_amount: paidAmount,
-          supplier_debt: debt, // Qarz qo'shildi
-          special_notes: values.special_notes || "",
-          kimdan_kelgan: values.kimdan_kelgan || supplierName || "",
-          client: supplierObj, // Backend supplier sifatida ishlaydi
+          supplier_debt: debt,
+          client: supplierObj,
         };
 
         await createProduct(payload).unwrap();
@@ -282,7 +275,7 @@ const AddProductToStore = ({ refetchProducts }) => {
         open={isModalOpen}
         onCancel={handleModalClose}
         footer={null}
-        width={900}
+        width={800}
         destroyOnClose
       >
         {/* BARCODE */}
@@ -315,7 +308,7 @@ const AddProductToStore = ({ refetchProducts }) => {
           <Divider orientation="left">Mahsulot ma'lumotlari</Divider>
 
           <Row gutter={16}>
-            <Col span={12}>
+            <Col span={8}>
               <Form.Item
                 name="product_name"
                 label="Mahsulot nomi"
@@ -328,7 +321,7 @@ const AddProductToStore = ({ refetchProducts }) => {
               </Form.Item>
             </Col>
 
-            <Col span={12}>
+            <Col span={8}>
               <Form.Item
                 name="model"
                 label="Model"
@@ -340,9 +333,6 @@ const AddProductToStore = ({ refetchProducts }) => {
                 />
               </Form.Item>
             </Col>
-          </Row>
-
-          <Row gutter={16}>
             <Col span={8}>
               <Form.Item
                 name="count_type"
@@ -363,40 +353,24 @@ const AddProductToStore = ({ refetchProducts }) => {
                 />
               </Form.Item>
             </Col>
+          </Row>
 
+          <Row gutter={16}>
             <Col span={8}>
               <Form.Item
                 name="stock"
                 label="Miqdor"
                 rules={[
                   { required: true, message: "Miqdor majburiy!" },
-                  { type: "number", min: 1, message: "Kamida 1" },
+                  { type: "number", message: "Kamida 1" },
                 ]}
-                initialValue={1}
               >
                 <InputNumber
-                  min={1}
                   style={{ width: "100%" }}
                   onChange={computeTotals}
-                  placeholder="Miqdor"
                 />
               </Form.Item>
             </Col>
-
-            <Col span={8}>
-              <Form.Item name="brand_name" label="Brand">
-                <AutoComplete
-                  options={brandNames.map((v) => ({ value: v }))}
-                  placeholder="Brand nomi"
-                />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          {/* NARXLAR */}
-          <Divider orientation="left">Narxlar</Divider>
-
-          <Row gutter={16}>
             <Col span={8}>
               <Form.Item
                 name="purchase_price"
@@ -404,54 +378,24 @@ const AddProductToStore = ({ refetchProducts }) => {
                 rules={[{ required: true, message: "Tannarx majburiy!" }]}
               >
                 <InputNumber
-                  min={0}
                   style={{ width: "100%" }}
                   onChange={computeTotals}
-                  placeholder="0"
                 />
               </Form.Item>
             </Col>
-
             <Col span={8}>
-              <Form.Item
-                name="purchase_currency"
-                label="Valyuta"
-                initialValue="usd"
-                rules={[{ required: true }]}
-              >
-                <Select>
-                  <Option value="usd">USD</Option>
-                  <Option value="sum">SUM</Option>
-                </Select>
-              </Form.Item>
-            </Col>
-
-            <Col span={8}>
-              <Form.Item name="total_purchase_price" label="Umumiy tannarx">
-                <Input disabled style={{ fontWeight: "bold" }} />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Row gutter={16}>
-            <Col span={12}>
               <Form.Item
                 name="sell_price"
                 label="Sotish narxi (1 dona)"
                 rules={[{ required: true, message: "Sotish narxi majburiy!" }]}
               >
-                <InputNumber
-                  min={0}
-                  style={{ width: "100%" }}
-                  placeholder="0"
-                />
+                <InputNumber style={{ width: "100%" }} />
               </Form.Item>
             </Col>
-
-            <Col span={12}>
+            <Col span={6}>
               <Form.Item
-                name="sell_currency"
-                label="Sotish valyutasi"
+                name="purchase_currency"
+                label=" valyutasi"
                 initialValue="usd"
                 rules={[{ required: true }]}
               >
@@ -461,29 +405,27 @@ const AddProductToStore = ({ refetchProducts }) => {
                 </Select>
               </Form.Item>
             </Col>
-          </Row>
-
-          {/* TO'LOV VA QARZ */}
-          <Divider orientation="left">To'lov ma'lumotlari</Divider>
-
-          <Row gutter={16}>
-            <Col span={12}>
+            <Col span={6}>
+              <Form.Item name="total_purchase_price" label="Umumiy tannarx">
+                <Input disabled style={{ fontWeight: "bold" }} />
+              </Form.Item>
+            </Col>
+            <Col span={6}>
               <Form.Item
                 name="paid_amount"
                 label="To'langan summa"
-                initialValue={0}
               >
                 <InputNumber
-                  min={0}
                   style={{ width: "100%" }}
                   onChange={computeTotals}
-                  placeholder="0"
                 />
               </Form.Item>
             </Col>
-
-            <Col span={12}>
-              <Form.Item name="supplier_debt" label="Supplier qarzi">
+            <Col span={6}>
+              <Form.Item
+                name="supplier_debt"
+                label=" qarzi"
+              >
                 <Input
                   disabled
                   style={{
@@ -499,13 +441,13 @@ const AddProductToStore = ({ refetchProducts }) => {
           <DebtAlert form={form} />
 
           {/* SUPPLIER MA'LUMOTLARI */}
-          <Divider orientation="left">Yetkazib beruvchi (Supplier)</Divider>
+          <Divider>Yetkazib beruvchi </Divider>
 
           <Row gutter={16}>
-            <Col span={12}>
+            <Col span={8}>
               <Form.Item
                 name="supplier_name"
-                label="Supplier nomi"
+                label="Yetkazib beruvchi nomi"
                 rules={[
                   { required: true, message: "Supplier nomini kiriting!" },
                 ]}
@@ -519,33 +461,15 @@ const AddProductToStore = ({ refetchProducts }) => {
               </Form.Item>
             </Col>
 
-            <Col span={12}>
+            <Col span={8}>
               <Form.Item name="supplier_phone" label="Telefon">
                 <Input placeholder="+998 XX XXX XX XX" />
               </Form.Item>
             </Col>
 
-            <Col span={24}>
+            <Col span={8}>
               <Form.Item name="supplier_address" label="Manzil">
                 <Input placeholder="Supplier manzili" />
-              </Form.Item>
-            </Col>
-
-            <Col span={24}>
-              <Form.Item
-                name="kimdan_kelgan"
-                label="Kimdan kelgan (qo'shimcha)"
-              >
-                <Input placeholder="Qo'shimcha ma'lumot" />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          {/* QO'SHIMCHA */}
-          <Row gutter={16}>
-            <Col span={24}>
-              <Form.Item name="special_notes" label="Izoh">
-                <Input.TextArea rows={2} placeholder="Qo'shimcha izoh..." />
               </Form.Item>
             </Col>
           </Row>

@@ -74,13 +74,61 @@ export default function Kassa() {
   const receiptRef = useRef();
   const [debtDueDate, setDebtDueDate] = useState(null);
   const [updateQuantity] = useUpdateQuantityMutation();
+
+  // API dan keladigan ma'lumotlarni to'g'ri parse qilish
   const {
-    data: products,
+    data: productsResponse,
     isLoading,
     refetch: productRefetch,
   } = useGetAllProductsQuery();
-  const { data: storeProducts, refetch: storeRefetch } =
+
+  const { data: storeProductsResponse, refetch: storeRefetch } =
     useGetStoreProductsQuery();
+
+  // Ma'lumotlarni massivga aylantirish
+  const products = useMemo(() => {
+    if (!productsResponse) return [];
+    if (Array.isArray(productsResponse)) return productsResponse;
+    if (productsResponse.products && Array.isArray(productsResponse.products)) {
+      return productsResponse.products;
+    }
+    if (productsResponse.data && Array.isArray(productsResponse.data)) {
+      return productsResponse.data;
+    }
+    if (productsResponse.result && Array.isArray(productsResponse.result)) {
+      return productsResponse.result;
+    }
+    console.warn("Unexpected products response format:", productsResponse);
+    return [];
+  }, [productsResponse]);
+
+  const storeProducts = useMemo(() => {
+    if (!storeProductsResponse) return [];
+    if (Array.isArray(storeProductsResponse)) return storeProductsResponse;
+    if (
+      storeProductsResponse.products &&
+      Array.isArray(storeProductsResponse.products)
+    ) {
+      return storeProductsResponse.products;
+    }
+    if (
+      storeProductsResponse.data &&
+      Array.isArray(storeProductsResponse.data)
+    ) {
+      return storeProductsResponse.data;
+    }
+    if (
+      storeProductsResponse.result &&
+      Array.isArray(storeProductsResponse.result)
+    ) {
+      return storeProductsResponse.result;
+    }
+    console.warn(
+      "Unexpected store products response format:",
+      storeProductsResponse
+    );
+    return [];
+  }, [storeProductsResponse]);
 
   const { data: usdRateData } = useGetUsdRateQuery();
   const [updateProduct] = useUpdateProductMutation();
@@ -114,15 +162,18 @@ export default function Kassa() {
 
   const usdRate = usdRateData?.rate || 1;
 
-  // convertPrice ni useMemo dan OLDIN e'lon qilish kerak
-  const convertPrice = useCallback((price, fromCurrency, toCurrency) => {
-    if (fromCurrency === toCurrency) return price;
-    if (fromCurrency === "usd" && toCurrency === "sum") return price * usdRate;
-    if (fromCurrency === "sum" && toCurrency === "usd") return price / usdRate;
-    return price;
-  }, [usdRate]);
+  const convertPrice = useCallback(
+    (price, fromCurrency, toCurrency) => {
+      if (fromCurrency === toCurrency) return price;
+      if (fromCurrency === "usd" && toCurrency === "sum")
+        return price * usdRate;
+      if (fromCurrency === "sum" && toCurrency === "usd")
+        return price / usdRate;
+      return price;
+    },
+    [usdRate]
+  );
 
-  // Optimized useMemo for calculations
   const productSalesMap = useMemo(() => {
     const map = {};
     sales?.forEach((sale) => {
@@ -135,9 +186,11 @@ export default function Kassa() {
   }, [sales]);
 
   const filteredProducts = useMemo(() => {
+    if (!Array.isArray(products)) return [];
+
     return products
-      ?.filter((product) => {
-        if (!searchTerm) return true;
+      .filter((product) => {
+        if (!searchTerm) return false; // Faqat qidiruv bo'lsa ko'rsat
         const searchWords = searchTerm.toLowerCase().split(" ");
         const fields = [
           product.product_name?.toLowerCase() || "",
@@ -159,7 +212,7 @@ export default function Kassa() {
         ...product,
         soldQuantity: productSalesMap[product._id] || 0,
       }))
-      .sort((a, b) => b.soldQuantity - a.soldQuantity) || [];
+      .sort((a, b) => b.soldQuantity - a.soldQuantity);
   }, [products, searchTerm, storeProducts, productSalesMap]);
 
   const totalAmount = useMemo(() => {
@@ -173,53 +226,64 @@ export default function Kassa() {
     }, 0);
   }, [selectedProducts, currency, convertPrice]);
 
-  const handleSelectProduct = useCallback((product) => {
-    const storeProduct = storeProducts?.find(
-      (item) => item.product_id?._id === product._id
-    );
-    const storeQuantity = storeProduct?.quantity || 0;
-    if (storeQuantity === 0) {
-      message.warning(
-        `${product.product_name} mahsuloti dokonda mavjud emas! (Miqdor: 0)`
+  const handleSelectProduct = useCallback(
+    (product) => {
+      const storeProduct = storeProducts?.find(
+        (item) => item.product_id?._id === product._id
       );
-      return;
-    }
-    const exists = selectedProducts?.find((item) => item._id === product._id);
-    if (!exists) {
-      setSelectedProducts(prev => [
-        ...prev,
-        {
-          ...product,
-          quantity: 1,
-          sell_price: convertPrice(product.sell_price, product.currency, currency),
-          currency,
-        },
-      ]);
-      setSearchTerm("");
-    } else {
-      message.info("Bu mahsulot allaqachon tanlangan");
-    }
-  }, [storeProducts, selectedProducts, currency, convertPrice]);
+      const storeQuantity = storeProduct?.quantity || 0;
+      if (storeQuantity === 0) {
+        message.warning(
+          `${product.product_name} mahsuloti dokonda mavjud emas! (Miqdor: 0)`
+        );
+        return;
+      }
+      const exists = selectedProducts?.find((item) => item._id === product._id);
+      if (!exists) {
+        setSelectedProducts((prev) => [
+          ...prev,
+          {
+            ...product,
+            quantity: 1,
+            sell_price: convertPrice(
+              product.sell_price,
+              product.currency,
+              currency
+            ),
+            currency,
+          },
+        ]);
+        setSearchTerm("");
+      } else {
+        message.info("Bu mahsulot allaqachon tanlangan");
+      }
+    },
+    [storeProducts, selectedProducts, currency, convertPrice]
+  );
 
   const handleRemoveProduct = useCallback((productId) => {
-    setSelectedProducts(prev => prev.filter((item) => item._id !== productId));
+    setSelectedProducts((prev) =>
+      prev.filter((item) => item._id !== productId)
+    );
   }, []);
 
   const handleQuantityChange = useCallback((productId, increment) => {
-    setSelectedProducts(prev => prev.map((item) => {
-      if (item._id === productId) {
-        const isDecimal = ["litr", "sm"].includes(item.count_type);
-        const step = isDecimal ? 0.1 : 1;
-        const newQuantity = parseFloat(
-          (item.quantity + increment * step).toFixed(2)
-        );
-        return {
-          ...item,
-          quantity: newQuantity >= step ? newQuantity : step,
-        };
-      }
-      return item;
-    }));
+    setSelectedProducts((prev) =>
+      prev.map((item) => {
+        if (item._id === productId) {
+          const isDecimal = ["litr", "sm"].includes(item.count_type);
+          const step = isDecimal ? 0.1 : 1;
+          const newQuantity = parseFloat(
+            (item.quantity + increment * step).toFixed(2)
+          );
+          return {
+            ...item,
+            quantity: newQuantity >= step ? newQuantity : step,
+          };
+        }
+        return item;
+      })
+    );
   }, []);
 
   const debouncedQuantityUpdate = useRef(
@@ -243,26 +307,34 @@ export default function Kassa() {
     }, 400)
   ).current;
 
-  const handleQuantityInputChange = useCallback((productId, value) => {
-    const parsedValue = parseFloat(value);
-    if (!isNaN(parsedValue)) {
-      debouncedQuantityUpdate(productId, parsedValue);
-    }
-  }, [debouncedQuantityUpdate]);
-
-  const handleSellPriceChange = useCallback((productId, newPrice) => {
-    setSelectedProducts(prev => prev.map((item) => {
-      if (item._id === productId) {
-        const numericPrice = parseFloat(newPrice) || 0;
-        return {
-          ...item,
-          sell_price: numericPrice,
-          currency,
-        };
+  const handleQuantityInputChange = useCallback(
+    (productId, value) => {
+      const parsedValue = parseFloat(value);
+      if (!isNaN(parsedValue)) {
+        debouncedQuantityUpdate(productId, parsedValue);
       }
-      return item;
-    }));
-  }, [currency]);
+    },
+    [debouncedQuantityUpdate]
+  );
+
+  const handleSellPriceChange = useCallback(
+    (productId, newPrice) => {
+      setSelectedProducts((prev) =>
+        prev.map((item) => {
+          if (item._id === productId) {
+            const numericPrice = parseFloat(newPrice) || 0;
+            return {
+              ...item,
+              sell_price: numericPrice,
+              currency,
+            };
+          }
+          return item;
+        })
+      );
+    },
+    [currency]
+  );
 
   const showModal = useCallback(() => {
     setIsModalVisible(true);
@@ -272,23 +344,22 @@ export default function Kassa() {
     setIsModalVisible(false);
   }, []);
 
-  // Optimized sale handler
   const handleSellProducts = async () => {
     setChekModal(true);
     try {
       const debtorProducts = [];
       let masterId = selectedMasterId;
-      
+
       if (masterId === "new" && newMasterName?.trim()) {
         const { result } = await createMaster({
           master_name: newMasterName,
         }).unwrap();
         masterId = result._id;
       }
-      
+
       let carId = null;
       const currentMaster = masters.find((m) => m._id === masterId);
-      
+
       if (paymentMethod === "master") {
         if (masterId && selectedCarName === "new" && newCarName?.trim()) {
           const { car } = await createCarToMaster({
@@ -305,12 +376,22 @@ export default function Kassa() {
       }
 
       for (const product of selectedProducts) {
-        const sellPrice = convertPrice(product.sell_price, product.currency, currency);
-        const buyPrice = convertPrice(product.purchase_price, product.currency, currency);
-        
+        const sellPrice = convertPrice(
+          product.sell_price,
+          product.currency,
+          currency
+        );
+        const buyPrice = convertPrice(
+          product.purchase_price,
+          product.currency,
+          currency
+        );
+
         if (location === "skalad") {
           if (product.stock < product.quantity) {
-            message.error(`${product.product_name} mahsuloti skaladda yetarli emas!`);
+            message.error(
+              `${product.product_name} mahsuloti skaladda yetarli emas!`
+            );
             return;
           }
           await updateProduct({
@@ -318,13 +399,15 @@ export default function Kassa() {
             stock: product.stock - product.quantity,
           }).unwrap();
         }
-        
+
         if (location === "dokon") {
           const storeProduct = storeProducts?.find(
             (p) => p.product_id?._id === product._id
           );
           if (!storeProduct || storeProduct.quantity < product.quantity) {
-            message.error(`${product.product_name} mahsuloti dokonda yetarli emas!`);
+            message.error(
+              `${product.product_name} mahsuloti dokonda yetarli emas!`
+            );
             return;
           }
           await sellProductFromStore({
@@ -341,9 +424,10 @@ export default function Kassa() {
           currency,
           quantity: product.quantity,
           total_price: sellPrice * product.quantity,
-          total_price_sum: currency === "usd"
-            ? sellPrice * product.quantity * usdRate
-            : sellPrice * product.quantity,
+          total_price_sum:
+            currency === "usd"
+              ? sellPrice * product.quantity * usdRate
+              : sellPrice * product.quantity,
         };
 
         if (paymentMethod === "master") {
@@ -377,7 +461,7 @@ export default function Kassa() {
           (acc, p) => acc + p.sell_price * p.quantity,
           0
         );
-        
+
         if (!selectedDebtor) {
           await createDebtor({
             name: debtorName?.trim(),
@@ -399,8 +483,9 @@ export default function Kassa() {
               id: storeProducts.find(
                 (p) => p.product_id._id === item.product_id
               )._id,
-              quantity: storeProducts.find((p) => p.product_id._id === item.product_id)
-                .quantity - item.quantity,
+              quantity:
+                storeProducts.find((p) => p.product_id._id === item.product_id)
+                  .quantity - item.quantity,
             }).unwrap();
           }
 
@@ -433,85 +518,101 @@ export default function Kassa() {
     }
   };
 
-  // Optimized nasiya handler
-  const handleNasiyaSubmit = useCallback(async (e) => {
-    e.preventDefault();
-    const name = e.target.name.value;
-    const location = e.target.location.value;
-    
-    if (!name) {
-      message.error("Ismni to'ldiring!");
-      return;
-    }
-    if (!location) {
-      message.error("Joylashuvni to'ldiring!");
-      return;
-    }
-    
-    try {
-      for (const product of selectedProducts) {
-        if (location === "skalad") {
-          if (product.stock < product.quantity) {
-            message.error(`${product.product_name} mahsuloti skaladda yetarli emas!`);
-            return;
-          }
-          await createNasiya({
-            product_id: product._id,
-            product_name: product.product_name,
-            quantity: product.quantity,
-            location: location,
-            nasiya_name: name,
-          });
-        } else {
-          const storeProduct = storeProducts?.find(
-            (p) => p.product_id?._id === product._id
-          );
-          if (!storeProduct) {
-            message.error(`${product.product_name} mahsuloti dokonda mavjud emas!`);
-            return;
-          }
-          if (storeProduct.quantity < product.quantity) {
-            message.error(`${product.product_name} mahsuloti dokonda yetarli emas!`);
-            return;
-          }
-          await createNasiya({
-            product_id: product._id,
-            quantity: product.quantity,
-            location: location,
-            nasiya_name: name,
-          });
-        }
-      }
-      message.success("Mahsulotlar muvaffaqiyatli nasiyaga berildi!");
-      setNasiyaModal(false);
-      setSelectedProducts([]);
-      storeRefetch();
-      productRefetch();
-    } catch (error) {
-      console.error("Xatolik:", error);
-      message.error("Xatolik yuz berdi, iltimos qayta urinib ko'ring!");
-    }
-  }, [selectedProducts, storeProducts, createNasiya, storeRefetch, productRefetch]);
+  const handleNasiyaSubmit = useCallback(
+    async (e) => {
+      e.preventDefault();
+      const name = e.target.name.value;
+      const location = e.target.location.value;
 
-  // Optimized nasiya completion
-  const handleCompleteNasiya = useCallback(async (item) => {
-    if (!sellPrice) {
-      message.error("Sotish narxini kiriting!");
-      return;
-    }
-    try {
-      await completeNasiya({
-        id: item._id,
-        sell_price: Number(sellPrice),
-        payment_method: nasiyaPaymentMethod,
-      });
-      message.success("Nasiya yopildi");
-      setSellPrice(null);
-      setNasiyaPaymentMethod("naqd");
-    } catch (error) {
-      message.error("Xatolik yuz berdi!");
-    }
-  }, [sellPrice, nasiyaPaymentMethod, completeNasiya]);
+      if (!name) {
+        message.error("Ismni to'ldiring!");
+        return;
+      }
+      if (!location) {
+        message.error("Joylashuvni to'ldiring!");
+        return;
+      }
+
+      try {
+        for (const product of selectedProducts) {
+          if (location === "skalad") {
+            if (product.stock < product.quantity) {
+              message.error(
+                `${product.product_name} mahsuloti skaladda yetarli emas!`
+              );
+              return;
+            }
+            await createNasiya({
+              product_id: product._id,
+              product_name: product.product_name,
+              quantity: product.quantity,
+              location: location,
+              nasiya_name: name,
+            });
+          } else {
+            const storeProduct = storeProducts?.find(
+              (p) => p.product_id?._id === product._id
+            );
+            if (!storeProduct) {
+              message.error(
+                `${product.product_name} mahsuloti dokonda mavjud emas!`
+              );
+              return;
+            }
+            if (storeProduct.quantity < product.quantity) {
+              message.error(
+                `${product.product_name} mahsuloti dokonda yetarli emas!`
+              );
+              return;
+            }
+            await createNasiya({
+              product_id: product._id,
+              quantity: product.quantity,
+              location: location,
+              nasiya_name: name,
+            });
+          }
+        }
+        message.success("Mahsulotlar muvaffaqiyatli nasiyaga berildi!");
+        setNasiyaModal(false);
+        setSelectedProducts([]);
+        storeRefetch();
+        productRefetch();
+      } catch (error) {
+        console.error("Xatolik:", error);
+        message.error("Xatolik yuz berdi, iltimos qayta urinib ko'ring!");
+      }
+    },
+    [
+      selectedProducts,
+      storeProducts,
+      createNasiya,
+      storeRefetch,
+      productRefetch,
+    ]
+  );
+
+  const handleCompleteNasiya = useCallback(
+    async (item) => {
+      if (!sellPrice) {
+        message.error("Sotish narxini kiriting!");
+        return;
+      }
+      try {
+        await completeNasiya({
+          id: item._id,
+          sell_price: Number(sellPrice),
+          payment_method: nasiyaPaymentMethod,
+        });
+        message.success("Nasiya yopildi");
+        setSellPrice(null);
+        setNasiyaPaymentMethod("naqd");
+      } catch (error) {
+        message.error("Xatolik yuz berdi!");
+      }
+    },
+    [sellPrice, nasiyaPaymentMethod, completeNasiya]
+  );
 
   const handlePrint = useReactToPrint({
     content: () => receiptRef.current,
@@ -523,146 +624,168 @@ export default function Kassa() {
     },
   });
 
-  // Table columns with useMemo
-  const productColumns = useMemo(() => [
-    { title: "Modeli", dataIndex: "model", key: "model" },
-    {
-      title: "Mahsulot nomi",
-      dataIndex: "product_name",
-      key: "product_name",
-    },
-    {
-      title: "Tan narxi",
-      dataIndex: "purchase_price",
-      key: "purchase_price",
-      render: (text) => (
-        <Tooltip title={text?.toLocaleString()}>
-          <span style={{ cursor: "pointer" }}>******</span>
-        </Tooltip>
-      ),
-    },
-    {
-      title: "Narxi",
-      dataIndex: "sell_price",
-      key: "sell_price",
-      render: (_, record) => (
-        <span>
-          {convertPrice(record.sell_price, record.currency, currency).toLocaleString()}
-          {currency === "usd" ? " USD" : " So'm"}
-        </span>
-      ),
-    },
-    {
-      title: "Dokon Miqdori",
-      dataIndex: "quantity",
-      key: "quantity",
-      render: (_, record) =>
-        storeProducts
-          ?.find((product) => product.product_id?._id === record._id)
-          ?.quantity?.toFixed(0) || 0,
-    },
-    { title: "Qutisi", dataIndex: "count_type", key: "count_type" },
-    {
-      title: "kimdan-kelgan",
-      dataIndex: "kimdan_kelgan",
-      key: "kimdan_kelgan",
-    },
-    {
-      title: "Harakatlar",
-      key: "actions",
-      render: (_, record) => (
-        <Button
-          type="primary"
-          onClick={() => handleSelectProduct(record)}
-        >
-          Tanlash
-        </Button>
-      ),
-    },
-  ], [currency, storeProducts, convertPrice, handleSelectProduct]);
-
-  const selectedProductsColumns = useMemo(() => [
-    {
-      title: "Mahsulot nomi",
-      dataIndex: "product_name",
-      key: "product_name",
-    },
-    {
-      title: (
-        <span>
-          Narxi{" "}
-          <select
-            value={currency}
-            onChange={(e) => setCurrency(e.target.value)}
-            style={{ width: 100 }}
-          >
-            <option value="sum">So'm</option>
-            <option value="usd">USD</option>
-          </select>
-        </span>
-      ),
-      key: "sell_price",
-      render: (_, record) => {
-        const price = convertPrice(record.sell_price, record.currency, currency);
-        return (
-          <input
-            type="number"
-            value={parseFloat(price.toFixed(2))}
-            onChange={(e) => handleSellPriceChange(record._id, e.target.value)}
-            style={{ width: "100px" }}
-          />
-        );
+  const productColumns = useMemo(
+    () => [
+      { title: "Modeli", dataIndex: "model", key: "model" },
+      {
+        title: "Mahsulot nomi",
+        dataIndex: "product_name",
+        key: "product_name",
       },
-    },
-    { title: "Miqdori", dataIndex: "quantity", key: "quantity" },
-    {
-      title: "Soni",
-      key: "quantity",
-      render: (_, record) => (
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <Button
-            onClick={() => handleQuantityChange(record._id, -1)}
-            disabled={record.quantity <= (["litr", "sm"].includes(record.count_type) ? 0.1 : 1)}
-          >
-            -
+      {
+        title: "Tan narxi",
+        dataIndex: "purchase_price",
+        key: "purchase_price",
+        render: (text) => (
+          <Tooltip title={text?.toLocaleString()}>
+            <span style={{ cursor: "pointer" }}>******</span>
+          </Tooltip>
+        ),
+      },
+      {
+        title: "Narxi",
+        dataIndex: "sell_price",
+        key: "sell_price",
+        render: (_, record) => (
+          <span>
+            {convertPrice(
+              record.sell_price,
+              record.currency,
+              currency
+            ).toLocaleString()}
+            {currency === "usd" ? " USD" : " So'm"}
+          </span>
+        ),
+      },
+      {
+        title: "Dokon Miqdori",
+        dataIndex: "quantity",
+        key: "quantity",
+        render: (_, record) =>
+          storeProducts
+            ?.find((product) => product.product_id?._id === record._id)
+            ?.quantity?.toFixed(0) || 0,
+      },
+      { title: "Qutisi", dataIndex: "count_type", key: "count_type" },
+      {
+        title: "kimdan-kelgan",
+        dataIndex: "kimdan_kelgan",
+        key: "kimdan_kelgan",
+      },
+      {
+        title: "Harakatlar",
+        key: "actions",
+        render: (_, record) => (
+          <Button type="primary" onClick={() => handleSelectProduct(record)}>
+            Tanlash
           </Button>
-          {["litr", "sm"].includes(record.count_type) ? (
+        ),
+      },
+    ],
+    [currency, storeProducts, convertPrice, handleSelectProduct]
+  );
+
+  const selectedProductsColumns = useMemo(
+    () => [
+      {
+        title: "Mahsulot nomi",
+        dataIndex: "product_name",
+        key: "product_name",
+      },
+      {
+        title: (
+          <span>
+            Narxi{" "}
+            <select
+              value={currency}
+              onChange={(e) => setCurrency(e.target.value)}
+              style={{ width: 100 }}
+            >
+              <option value="sum">So'm</option>
+              <option value="usd">USD</option>
+            </select>
+          </span>
+        ),
+        key: "sell_price",
+        render: (_, record) => {
+          const price = convertPrice(
+            record.sell_price,
+            record.currency,
+            currency
+          );
+          return (
             <input
               type="number"
-              step="0.1"
-              min="0.1"
-              value={record.quantity}
-              onChange={(e) => handleQuantityInputChange(record._id, e.target.value)}
-              style={{ width: 60 }}
+              value={parseFloat(price.toFixed(2))}
+              onChange={(e) =>
+                handleSellPriceChange(record._id, e.target.value)
+              }
+              style={{ width: "100px" }}
             />
-          ) : (
-            <span>{record.quantity}</span>
-          )}
-          <Button onClick={() => handleQuantityChange(record._id, 1)}>
-            +
+          );
+        },
+      },
+      { title: "Miqdori", dataIndex: "quantity", key: "quantity" },
+      {
+        title: "Soni",
+        key: "quantity",
+        render: (_, record) => (
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <Button
+              onClick={() => handleQuantityChange(record._id, -1)}
+              disabled={
+                record.quantity <=
+                (["litr", "sm"].includes(record.count_type) ? 0.1 : 1)
+              }
+            >
+              -
+            </Button>
+            {["litr", "sm"].includes(record.count_type) ? (
+              <input
+                type="number"
+                step="0.1"
+                min="0.1"
+                value={record.quantity}
+                onChange={(e) =>
+                  handleQuantityInputChange(record._id, e.target.value)
+                }
+                style={{ width: 60 }}
+              />
+            ) : (
+              <span>{record.quantity}</span>
+            )}
+            <Button onClick={() => handleQuantityChange(record._id, 1)}>
+              +
+            </Button>
+          </div>
+        ),
+      },
+      {
+        title: "Harakatlar",
+        key: "actions",
+        render: (_, record) => (
+          <Button
+            type="primary"
+            danger
+            onClick={() => handleRemoveProduct(record._id)}
+          >
+            O'chirish
           </Button>
-        </div>
-      ),
-    },
-    {
-      title: "Harakatlar",
-      key: "actions",
-      render: (_, record) => (
-        <Button
-          type="primary"
-          danger
-          onClick={() => handleRemoveProduct(record._id)}
-        >
-          O'chirish
-        </Button>
-      ),
-    },
-  ], [currency, convertPrice, handleSellPriceChange, handleQuantityChange, handleQuantityInputChange, handleRemoveProduct]);
-
+        ),
+      },
+    ],
+    [
+      currency,
+      convertPrice,
+      handleSellPriceChange,
+      handleQuantityChange,
+      handleQuantityInputChange,
+      handleRemoveProduct,
+    ]
+  );
 
   return (
     <div className="kassa-container">
-      {/* All modals and JSX remain exactly the same */}
       <Modal
         open={chekModal}
         style={{ display: "flex", justifyContent: "center" }}
@@ -671,7 +794,7 @@ export default function Kassa() {
           setSelectedProducts([]);
         }}
         footer={[
-          <Button type="primary" onClick={handlePrint}>
+          <Button key="print" type="primary" onClick={handlePrint}>
             Chop etish
           </Button>,
         ]}
@@ -935,7 +1058,6 @@ export default function Kassa() {
           flexDirection: "column-reverse",
           alignItems: "stretch",
           backgroundColor: "#0F4C81",
-          width: "80%",
           height: "100%",
           color: "white",
           borderRadius: 0.1,
@@ -950,14 +1072,33 @@ export default function Kassa() {
           style={{ marginBottom: 20, width: "40%" }}
           size="large"
         />
-        <Table
-          dataSource={filteredProducts}
-          loading={isLoading}
-          style={{ width: "100%" }}
-          columns={productColumns}
-          rowKey="_id"
-          pagination={{ pageSize: 10 }}
-        />
+
+        {/* Faqat qidiruv bo'lganda va natijalar bo'lsa jadvalni ko'rsatish */}
+        {searchTerm && filteredProducts.length > 0 && (
+          <Table
+            dataSource={filteredProducts}
+            loading={isLoading}
+            style={{ width: "100%" }}
+            columns={productColumns}
+            rowKey="_id"
+            pagination={{ pageSize: 10 }}
+          />
+        )}
+
+        {/* Qidiruv bo'lsa lekin natija bo'lmasa */}
+        {searchTerm && filteredProducts.length === 0 && !isLoading && (
+          <div
+            style={{
+              textAlign: "center",
+              padding: "20px",
+              color: "white",
+              fontStyle: "italic",
+            }}
+          >
+            Hech qanday mahsulot topilmadi
+          </div>
+        )}
+
         {selectedProducts.length > 0 && (
           <div
             style={{

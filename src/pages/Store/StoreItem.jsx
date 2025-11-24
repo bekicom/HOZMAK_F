@@ -17,6 +17,27 @@ import { QRCodeSVG } from "qrcode.react";
 
 const { Option } = Select;
 
+// ✅ PRINT PAGE STYLE (40mm x 30mm)
+const printPageStyle = `
+  @page {
+    size: 40mm 30mm;
+    margin: 0;
+  }
+  @media print {
+    html, body {
+      width: 40mm;
+      height: 30mm;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+    }
+    * {
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+  }
+`;
+
 export default function StoreItem() {
   const {
     data: storeProducts,
@@ -28,9 +49,9 @@ export default function StoreItem() {
   const [updateQuantity] = useUpdateQuantityMutation();
 
   const [searchQuery, setSearchQuery] = useState("");
-  const [barcodeSearch, setBarcodeSearch] = useState("");
+  const [barcodeSearch, setBarcodeSearch] = useState(""); // agar kerak bo'lsa qoladi
   const [stockFilter, setStockFilter] = useState("newlyAdded");
-  const [selectedKimdanKelgan, setSelectedKimdanKelgan] = useState(null);
+  const [selectedKimdanKelgan, setSelectedKimdanKelgan] = useState(null); // agar kerak bo'lsa qoladi
 
   const [isEditModalVisible, setIsEditModalVisible] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
@@ -41,7 +62,6 @@ export default function StoreItem() {
   const { register, handleSubmit, reset } = useForm();
 
   const [printData, setPrintData] = useState(null);
-  
   const printRef = useRef();
 
   useEffect(() => {
@@ -50,19 +70,18 @@ export default function StoreItem() {
 
   const handleFilterChange = (value) => setStockFilter(value);
 
-  // ✅ 1) RESPONSE NORMALIZE: array yoki {products: []}
+  // ✅ RESPONSE NORMALIZE
   const storeList = useMemo(() => {
     if (!storeProducts) return [];
     if (Array.isArray(storeProducts)) return storeProducts;
     return storeProducts.products || [];
   }, [storeProducts]);
 
-  // ✅ 2) FORMAT DETECT
+  // ✅ FORMAT DETECT: store formatmi?
   const isStoreFormat = useMemo(() => {
     return storeList.length > 0 && !!storeList[0]?.product_id;
   }, [storeList]);
 
-  // ✅ 3) STORE-LIKE GETTERS
   const getProduct = (item) => (isStoreFormat ? item.product_id : item);
   const getQty = (item) => (isStoreFormat ? item.quantity : item.stock);
 
@@ -114,30 +133,39 @@ export default function StoreItem() {
   const preparePrintData = (item) => {
     const p = getProduct(item);
     const priceVal = p?.sell_price ?? 0;
-    const priceCurrency = p?.purchase_currency === "usd" ? "$" : "so'm"; // purchase_currency ga o'zgardi
+    const priceCurrency = p?.purchase_currency === "usd" ? "$" : " so'm";
 
     return {
       name: p?.product_name ?? "Noma'lum",
       model: p?.model ?? "",
       price: `${priceVal.toFixed(0)}${priceCurrency}`,
       barcode: p?.barcode ?? "0000000000000",
-      special_notes: p?.special_notes ?? "-",
+      special_notes: p?.special_notes ?? "",
     };
   };
 
-  // ✅ kimdan_kelgan filter list
-  const uniqueKimdanKelgan = useMemo(() => {
-    const set = new Set();
-    storeList.forEach((item) => {
-      const p = getProduct(item);
-      if (p?.kimdan_kelgan) set.add(p.kimdan_kelgan);
-    });
-    return [...set];
-  }, [storeList, isStoreFormat]);
+  // ✅ KIRITILGAN MUHIM FIX:
+  // Edit modalga yuboriladigan obyekt create formatga 1 xil bo‘ladi
+  const normalizeForEdit = (item) => {
+    const p = getProduct(item);
+
+    return {
+      _id: p?._id,
+      product_name: p?.product_name ?? "",
+      model: p?.model ?? "",
+      barcode: p?.barcode ?? "",
+      purchase_price: p?.purchase_price ?? 0,
+      sell_price: p?.sell_price ?? 0,
+      purchase_currency: p?.purchase_currency ?? "usd",
+      count_type: p?.count_type ?? "",
+      kimdan_kelgan: p?.kimdan_kelgan ?? "",
+      special_notes: p?.special_notes ?? "",
+      // create'da qo‘shimcha field bo‘lsa shu yerga ham qo‘shiladi
+    };
+  };
 
   const showEditModal = (item) => {
-    const p = getProduct(item);
-    setEditingProduct(p);
+    setEditingProduct(normalizeForEdit(item));
     setIsEditModalVisible(true);
   };
 
@@ -150,34 +178,29 @@ export default function StoreItem() {
   const handleDelete = async (id) => {
     try {
       await removeProductFromStore(id).unwrap();
-      message.success("Mahsulot muvaffaqiyatli o'chirildi!");
+      message.success("Mahsulot o'chirildi!");
       refetchStoreProducts();
     } catch (error) {
-      message.error("Xatolik yuz berdi. Iltimos qayta urinib ko'ring.");
+      message.error("Xatolik yuz berdi.");
     }
   };
 
   const submitModal = (data) => {
     updateQuantity({ quantity: data.quantity, id: selectedQuantity }).then(
       () => {
-        message.success("Mahsulot muvaffaqiyatli o'zgartirildi!");
+        message.success("Miqdor o'zgartirildi!");
         setQuantityModal(false);
         refetchStoreProducts();
       }
     );
   };
 
-  // ✅ Valyuta formatlash funksiyasi
   const formatPrice = (price, currency) => {
-    if (currency === "usd") {
-      return `$${Number(price).toFixed(0)}`;
-    } else if (currency === "sum") {
-      return `${Number(price).toFixed(0)} so'm`;
-    }
+    if (currency === "usd") return `$${Number(price).toFixed(0)}`;
+    if (currency === "sum") return `${Number(price).toFixed(0)} so'm`;
     return `${Number(price).toFixed(0)}`;
   };
 
-  // ✅ COLUMNS (formatdan qat'i nazar ishlaydi)
   const columns = [
     {
       title: "Maxsulot nomi",
@@ -200,8 +223,11 @@ export default function StoreItem() {
               backgroundColor:
                 qty === 0 ? "red" : qty <= 5 ? "yellow" : "inherit",
               display: "inline-block",
-              padding: "15px",
+              padding: "8px",
               borderRadius: "3px",
+              minWidth: 30,
+              textAlign: "center",
+              fontWeight: 700,
             }}
           >
             {qty}
@@ -214,9 +240,10 @@ export default function StoreItem() {
       key: "purchase_price",
       render: (_, item) => {
         const p = getProduct(item);
-        const price = p?.purchase_price ?? 0;
-        const currency = p?.purchase_currency ?? "usd"; // purchase_currency dan foydalanish
-        return formatPrice(price, currency);
+        return formatPrice(
+          p?.purchase_price ?? 0,
+          p?.purchase_currency ?? "usd"
+        );
       },
     },
     {
@@ -224,9 +251,7 @@ export default function StoreItem() {
       key: "sell_price",
       render: (_, item) => {
         const p = getProduct(item);
-        const price = p?.sell_price ?? 0;
-        const currency = p?.purchase_currency ?? "usd"; // Sotish narxi ham purchase_currency ga qarab
-        return formatPrice(price, currency);
+        return formatPrice(p?.sell_price ?? 0, p?.purchase_currency ?? "usd");
       },
     },
     {
@@ -234,44 +259,37 @@ export default function StoreItem() {
       key: "count_type",
       render: (_, item) => getProduct(item)?.count_type,
     },
-  
     {
       title: "QR Kod",
       key: "qrcode",
-      render: (_, item) => {
-        const p = getProduct(item);
-        return (
-          <div>
-            <ReactToPrint
-              trigger={() => (
-                <Button type="primary" style={{ marginLeft: 10 }}>
-                  <FaPrint /> Chop etish
-                </Button>
-              )}
-              content={() => printRef.current}
-              onBeforeGetContent={() =>
-                new Promise((resolve) => {
-                  setPrintData(preparePrintData(item));
-                  setTimeout(resolve, 100);
-                })
-              }
-            />
-          </div>
-        );
-      },
+      render: (_, item) => (
+        <ReactToPrint
+          pageStyle={printPageStyle}
+          trigger={() => (
+            <Button type="primary">
+              <FaPrint /> Chop etish
+            </Button>
+          )}
+          content={() => printRef.current}
+          onBeforeGetContent={() =>
+            new Promise((resolve) => {
+              setPrintData(preparePrintData(item));
+              setTimeout(resolve, 50);
+            })
+          }
+        />
+      ),
     },
     {
       title: "Amallar",
       key: "actions",
       render: (_, item) => {
-        // agar Store format bo'lsa amallar chiqadi, Product format bo'lsa yashiramiz
         if (!isStoreFormat) return null;
-
         return (
           <div>
             <Button
               type="primary"
-              style={{ marginRight: "10px" }}
+              style={{ marginRight: 10 }}
               onClick={() => showEditModal(item)}
             >
               <EditOutlined />
@@ -279,7 +297,7 @@ export default function StoreItem() {
 
             <Button
               type="primary"
-              style={{ marginRight: "10px" }}
+              style={{ marginRight: 10 }}
               onClick={() => {
                 setQuantityModal(true);
                 setSelectedQuantity(item._id);
@@ -290,10 +308,8 @@ export default function StoreItem() {
             </Button>
 
             <Popconfirm
-              title="Haqiqatdan ham ushbu mahsulotni o'chirmoqchimisiz?"
+              title="O'chirmoqchimisiz?"
               onConfirm={() => handleDelete(item._id)}
-              okText="Ha"
-              cancelText="Yo'q"
             >
               <Button type="primary" danger>
                 <DeleteOutlined />
@@ -307,55 +323,112 @@ export default function StoreItem() {
 
   return (
     <div>
-      {/* PRINT TEMPLATE */}
-      <div style={{ display: "none" }}>
+      {/* ✅ PRINT TEMPLATE (OFFSCREEN) */}
+      <div
+        style={{
+          position: "fixed",
+          left: "-10000px",
+          top: 0,
+        }}
+      >
         <div ref={printRef}>
           {printData && (
             <div
               style={{
+                width: "40mm",
+                height: "30mm",
+                padding: "1.5mm",
                 display: "flex",
+                flexDirection: "row",
+                justifyContent: "space-between",
                 alignItems: "center",
-                justifyContent: "center",
-                width: "300px",
-                height: "200px",
-                border: "1px solid #000",
-                gap: "20px",
+                boxSizing: "border-box",
+                fontFamily: "Arial, sans-serif",
+                border: "0.2mm solid #000",
+                overflow: "hidden",
+                gap: "1mm",
               }}
             >
+              {/* LEFT TEXT */}
               <div
                 style={{
+                  width: "62%",
                   display: "flex",
                   flexDirection: "column",
-                  alignItems: "center",
-                  marginLeft: "60px",
+                  gap: "0.6mm",
+                  overflow: "hidden",
                 }}
               >
-                <div style={{ textAlign: "center", marginBottom: "10px" }}>
-                  <div style={{ fontSize: "25px", fontWeight: "bold" }}>
-                    {printData.name}
-                  </div>
-                  <div style={{ fontSize: "25px", fontWeight: "bold" }}>
-                    {printData.model}
-                    {printData.sell_price}
-                  </div>
+                <div
+                  style={{
+                    fontSize: "3.0mm",
+                    fontWeight: 800,
+                    lineHeight: 1.1,
+                    whiteSpace: "nowrap",
+                    textOverflow: "ellipsis",
+                    overflow: "hidden",
+                  }}
+                >
+                  {printData.name}
                 </div>
 
-                <div style={{ fontSize: "25px", fontWeight: "900" }}>
-                  <p>{printData.special_notes}</p>
+                {printData.model && (
+                  <div
+                    style={{
+                      fontSize: "2.1mm",
+                      fontWeight: 600,
+                      lineHeight: 1.1,
+                      whiteSpace: "nowrap",
+                      textOverflow: "ellipsis",
+                      overflow: "hidden",
+                    }}
+                  >
+                    {printData.model}
+                  </div>
+                )}
+
+                <div
+                  style={{
+                    fontSize: "3.2mm",
+                    fontWeight: 500,
+                    lineHeight: 1,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {printData.price}
                 </div>
-                <div style={{ fontSize: "25px", fontWeight: "900" }}>
-                  <p>{printData.sell_price}</p>
-                  
-                </div>
+
+                {printData.special_notes && (
+                  <div
+                    style={{
+                      fontSize: "2.6mm",
+                      opacity: 0.8,
+                      lineHeight: 1.1,
+                      whiteSpace: "nowrap",
+                      textOverflow: "ellipsis",
+                      overflow: "hidden",
+                    }}
+                  >
+                    {printData.special_notes}
+                  </div>
+                )}
               </div>
 
-              <QRCodeSVG
-                style={{ transform: "translateX(-10px)", marginRight: "30px" }}
-                value={printData.barcode}
-                size={80}
-                level="M"
-                includeMargin={false}
-              />
+              {/* RIGHT QR */}
+              <div
+                style={{
+                  width: "35%",
+                  textAlign: "center",
+                  marginRight: "5px",
+                }}
+              >
+                <QRCodeSVG
+                  value={printData.barcode}
+                  size={50}
+                  level="M"
+                  includeMargin={false}
+                />
+              </div>
             </div>
           )}
         </div>
@@ -370,20 +443,20 @@ export default function StoreItem() {
       >
         <form
           style={{
-            paddingInline: "12px",
+            paddingInline: 12,
             width: "100%",
             display: "flex",
             flexDirection: "column",
-            gap: "12px",
+            gap: 12,
           }}
           onSubmit={handleSubmit(submitModal)}
         >
           <input
             style={{
               width: "40%",
-              paddingInline: "6px",
-              height: "40px",
-              borderRadius: "5px",
+              paddingInline: 6,
+              height: 40,
+              borderRadius: 5,
               border: "1px solid #ccc",
             }}
             type="number"
@@ -391,13 +464,12 @@ export default function StoreItem() {
             {...register("quantity")}
             placeholder="Mahsulot soni"
           />
-
           <button
             style={{
               background: "#000",
               width: "100%",
-              height: "40px",
-              borderRadius: "5px",
+              height: 40,
+              borderRadius: 5,
               color: "#fff",
             }}
           >
@@ -407,34 +479,23 @@ export default function StoreItem() {
       </Modal>
 
       {/* FILTERS */}
-      {/* FILTERS */}
-      <div
-        style={{
-          display: "flex",
-          marginBottom: 20,
-          gap: "10px",
-          alignItems: "center",
-        }}
-      >
-        {/* 1. Search input */}
+      <div style={{ display: "flex", marginBottom: 20, gap: 10 }}>
         <Input
-          placeholder="🔍 Model, nomi bo'yicha qidirish"
+          placeholder="Model, nomi bo'yicha qidirish"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          style={{ width: "200px", color: "#000" }}
+          style={{ width: 200 }}
           allowClear
         />
-
-        {/* 3. Stock filter */}
         <Select
           defaultValue="newlyAdded"
           style={{ width: 200 }}
           onChange={handleFilterChange}
         >
-          <Option value="newlyAdded">Yangi qo'shilgan mahsulotlar</Option>
-          <Option value="all">Barcha mahsulotlar</Option>
-          <Option value="runningOut">Tugayotgan mahsulotlar</Option>
-          <Option value="outOfStock">Tugagan mahsulotlar</Option>
+          <Option value="newlyAdded">Yangi qo'shilgan</Option>
+          <Option value="all">Barchasi</Option>
+          <Option value="runningOut">Tugayotgan</Option>
+          <Option value="outOfStock">Tugagan</Option>
         </Select>
       </div>
 
@@ -447,7 +508,7 @@ export default function StoreItem() {
         loading={storeLoading}
         columns={columns}
         rowKey="_id"
-        pagination={{ pageSize: 20, defaultCurrent: 1 }}
+        pagination={{ pageSize: 20 }}
         scroll={{ x: "max-content" }}
       />
 

@@ -1,4 +1,4 @@
-import { useRef, useState, useMemo, useCallback } from "react";
+import { useRef, useState, useMemo, useCallback, useEffect } from "react";
 import {
   Input,
   Table,
@@ -74,6 +74,9 @@ export default function Kassa() {
   const receiptRef = useRef();
   const [debtDueDate, setDebtDueDate] = useState(null);
   const [updateQuantity] = useUpdateQuantityMutation();
+
+  // ✅ Scanner input ref (focus uchun)
+  const searchInputRef = useRef(null);
 
   // API dan keladigan ma'lumotlarni to'g'ri parse qilish
   const {
@@ -174,6 +177,107 @@ export default function Kassa() {
     [usdRate]
   );
 
+  // ===============================
+  // ✅ SCANNER LOGIC (YANGI)
+  // ===============================
+  const normalizeBarcode = (v) => String(v || "").trim();
+
+  const findProductByBarcode = useCallback(
+    (barcode) => {
+      const code = normalizeBarcode(barcode).toLowerCase();
+      if (!code) return null;
+
+      return products.find(
+        (p) => normalizeBarcode(p.barcode).toLowerCase() === code
+      );
+    },
+    [products]
+  );
+
+  const handleScanBarcode = useCallback(
+    (barcode) => {
+      const code = normalizeBarcode(barcode);
+      if (!code) return;
+
+      const product = findProductByBarcode(code);
+
+      if (!product) {
+        message.error(`Barcode topilmadi: ${code}`);
+        return;
+      }
+
+      const storeProduct = storeProducts?.find(
+        (item) => item.product_id?._id === product._id
+      );
+      const storeQty = storeProduct?.quantity || 0;
+
+      if (storeQty <= 0) {
+        message.warning(
+          `${product.product_name} mahsuloti dokonda mavjud emas! (Miqdor: 0)`
+        );
+        return;
+      }
+
+      setSelectedProducts((prev) => {
+        const idx = prev.findIndex((i) => i._id === product._id);
+
+        // ✅ Yangi mahsulot qo‘shish
+        if (idx === -1) {
+          const firstQty = ["litr", "sm"].includes(product.count_type)
+            ? 0.1
+            : 1;
+
+          return [
+            ...prev,
+            {
+              ...product,
+              quantity: firstQty,
+              sell_price: convertPrice(
+                product.sell_price,
+                product.currency,
+                currency
+              ),
+              currency,
+            },
+          ];
+        }
+
+        // ✅ Bor mahsulot bo‘lsa sonini oshirish
+        const next = [...prev];
+        const item = next[idx];
+        const step = ["litr", "sm"].includes(item.count_type) ? 0.1 : 1;
+        const newQty = parseFloat(
+          (Number(item.quantity || 0) + step).toFixed(2)
+        );
+
+        if (newQty > storeQty) {
+          message.warning(
+            `${product.product_name} dokonda yetarli emas! (Miqdor: ${storeQty})`
+          );
+          return prev;
+        }
+
+        next[idx] = { ...item, quantity: newQty };
+        return next;
+      });
+
+      // ✅ scanner input tozalash
+      setSearchTerm("");
+
+      // ✅ input fokusni qaytarish
+      setTimeout(() => searchInputRef.current?.focus(), 0);
+    },
+    [findProductByBarcode, storeProducts, convertPrice, currency]
+  );
+
+  // ✅ Sahifa ochilganda inputga fokus
+  useEffect(() => {
+    searchInputRef.current?.focus();
+  }, []);
+
+  // ===============================
+  // ✅ Oldingi kodlar (o‘zgarmadi)
+  // ===============================
   const productSalesMap = useMemo(() => {
     const map = {};
     sales?.forEach((sale) => {
@@ -1066,14 +1170,20 @@ export default function Kassa() {
         id="kassa"
       >
         <Input
+          ref={searchInputRef}
           placeholder="shtrix kodi yoki katalog kiriting..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              handleScanBarcode(e.currentTarget.value);
+            }
+          }}
           style={{ marginBottom: 20, width: "40%" }}
           size="large"
         />
 
-        {/* Faqat qidiruv bo'lganda va natijalar bo'lsa jadvalni ko'rsatish */}
         {searchTerm && filteredProducts.length > 0 && (
           <Table
             dataSource={filteredProducts}
@@ -1085,7 +1195,6 @@ export default function Kassa() {
           />
         )}
 
-        {/* Qidiruv bo'lsa lekin natija bo'lmasa */}
         {searchTerm && filteredProducts.length === 0 && !isLoading && (
           <div
             style={{
@@ -1132,6 +1241,7 @@ export default function Kassa() {
             </Button>
           </div>
         )}
+
         <Modal
           title="To'lov usulini tanlang"
           visible={isModalVisible}
@@ -1151,6 +1261,7 @@ export default function Kassa() {
                 <Option value="master">Ustaga</Option>
               </Select>
             </Form.Item>
+
             {paymentMethod === "qarz" && (
               <>
                 <Form.Item label="Qarz oluvchi">
@@ -1190,6 +1301,7 @@ export default function Kassa() {
                     ))}
                   </Select>
                 </Form.Item>
+
                 {!selectedDebtor && (
                   <>
                     <Form.Item label="Yangi xaridor ismi">
@@ -1206,6 +1318,7 @@ export default function Kassa() {
                     </Form.Item>
                   </>
                 )}
+
                 <Form.Item label="Qarz muddatini kiriting">
                   <input
                     type="date"
@@ -1215,6 +1328,7 @@ export default function Kassa() {
                 </Form.Item>
               </>
             )}
+
             {paymentMethod === "master" && (
               <>
                 <Form.Item label="Ustani tanlang">
@@ -1237,6 +1351,7 @@ export default function Kassa() {
                     ))}
                   </Select>
                 </Form.Item>
+
                 {selectedMasterId === "new" && (
                   <Form.Item label="Yangi ustaning ismi">
                     <AntdInput
@@ -1245,6 +1360,7 @@ export default function Kassa() {
                     />
                   </Form.Item>
                 )}
+
                 {selectedMasterId && selectedMasterId !== "new" && (
                   <Form.Item label="Mashinasini tanlang">
                     <Select
@@ -1268,6 +1384,7 @@ export default function Kassa() {
                     </Select>
                   </Form.Item>
                 )}
+
                 {selectedCarName === "new" && (
                   <Form.Item label="Yangi mashina nomi">
                     <AntdInput

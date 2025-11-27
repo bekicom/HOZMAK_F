@@ -905,12 +905,7 @@ export default function Kassa() {
         title="To'lov cheki"
       >
         <div ref={receiptRef} style={{ width: "80mm", padding: 10 }}>
-          <img
-            src={logo}
-            alt=""
-            width={150}
-            style={{ justifySelf: "center", alignSelf: "center" }}
-          />
+ <h1>ARZON QURULISH MOLLARI</h1>
           <p
             style={{
               textAlign: "center",
@@ -919,7 +914,7 @@ export default function Kassa() {
               marginTop: "8px",
             }}
           >
-            +998 91 294 87 80 | +998 90 790 42 32
+            +998997870205 | +998883711994
           </p>
           <p
             id="tgqr_p"

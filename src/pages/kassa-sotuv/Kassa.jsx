@@ -914,12 +914,13 @@ export default function Kassa() {
               fontSize: "18px",
               marginBottom: 5,
               marginTop: 8,
+              fontWeight: "bold",
             }}
           >
             +998997870205 | +998883711994
           </p>
           <p
-            style={{ textAlign: "center", fontSize: "18px", marginBottom: 10 }}
+            style={{ textAlign: "center", fontSize: "18px", marginBottom: 10,fontWeight:'bold' }}
           >
             Sana: {moment().tz("Asia/Tashkent").format("DD.MM.YYYY HH:mm")}
           </p>

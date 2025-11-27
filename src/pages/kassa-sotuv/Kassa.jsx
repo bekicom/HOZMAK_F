@@ -1135,13 +1135,7 @@ export default function Kassa() {
         >
           Ustalar
         </Button>
-        <Button
-          type="primary"
-          onClick={() => setChekBolimModal(true)}
-          style={{ marginRight: 10, width: "95%", height: "50px" }}
-        >
-          Cheklar
-        </Button>
+    
       </div>
 
       <Card

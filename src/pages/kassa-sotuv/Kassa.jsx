@@ -904,14 +904,14 @@ export default function Kassa() {
         ]}
         title="To'lov cheki"
       >
-        <div ref={receiptRef} style={{ width: "80mm", padding: 10 }}>
+        <div ref={receiptRef} style={{ width: "90mm", padding: 10 }}>
           <h1 style={{ textAlign: "center", marginBottom: 5 }}>
             ARZON QURULISH MOLLARI
           </h1>
           <p
             style={{
               textAlign: "center",
-              fontSize: "10px",
+              fontSize: "18px",
               marginBottom: 5,
               marginTop: 8,
             }}
@@ -919,7 +919,7 @@ export default function Kassa() {
             +998997870205 | +998883711994
           </p>
           <p
-            style={{ textAlign: "center", fontSize: "11px", marginBottom: 10 }}
+            style={{ textAlign: "center", fontSize: "18px", marginBottom: 10 }}
           >
             Sana: {moment().tz("Asia/Tashkent").format("DD.MM.YYYY HH:mm")}
           </p>

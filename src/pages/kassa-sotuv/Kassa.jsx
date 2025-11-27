@@ -905,51 +905,98 @@ export default function Kassa() {
         title="To'lov cheki"
       >
         <div ref={receiptRef} style={{ width: "80mm", padding: 10 }}>
-          <h1>ARZON QURULISH MOLLARI</h1>
+          <h1 style={{ textAlign: "center", marginBottom: 5 }}>
+            ARZON QURULISH MOLLARI
+          </h1>
           <p
             style={{
               textAlign: "center",
               fontSize: "10px",
-              marginBottom: "5px 0",
-              marginTop: "8px",
+              marginBottom: 5,
+              marginTop: 8,
             }}
           >
             +998997870205 | +998883711994
           </p>
           <p
-            id="tgqr_p"
-            style={{ display: "flex", justifyContent: "space-around" }}
-          ></p>
-          <p>Sana: {moment().tz("Asia/Tashkent").format("DD.MM.YYYY HH:mm")}</p>
-          <table style={{ width: "100%", fontSize: "12px" }}>
-            <thead style={{ border: "0px solid #000" }}>
-              <tr style={{ border: "0px solid #000" }}>
-                <th style={{ border: "0px solid #000" }}>Mahsulot</th>
-                <th style={{ border: "0px solid #000" }}>Soni</th>
-                <th style={{ border: "0px solid #000" }}>Narx</th>
-                <th style={{ border: "0px solid #000" }}>Jami</th>
+            style={{ textAlign: "center", fontSize: "11px", marginBottom: 10 }}
+          >
+            Sana: {moment().tz("Asia/Tashkent").format("DD.MM.YYYY HH:mm")}
+          </p>
+
+          <table
+            style={{
+              width: "100%",
+              fontSize: "11px",
+              borderCollapse: "collapse",
+              marginTop: 10,
+            }}
+          >
+            <thead>
+              <tr style={{ borderBottom: "1px solid #000" }}>
+                <th style={{ textAlign: "left", padding: "5px 0" }}>
+                  Mahsulot
+                </th>
+                <th style={{ textAlign: "center", padding: "5px 0" }}>Soni</th>
+                <th style={{ textAlign: "right", padding: "5px 0" }}>Narx</th>
+                <th style={{ textAlign: "right", padding: "5px 0" }}>Jami</th>
               </tr>
             </thead>
             <tbody>
               {selectedProducts?.map((item, index) => (
-                <tr key={index}>
-                  <td>{item.product_name}</td>
-                  <td>{item.quantity}</td>
-                  <td>
-                    {item.sell_price} {item.currency.toUpperCase()}
+                <tr key={index} style={{ borderBottom: "1px dashed #ccc" }}>
+                  <td style={{ padding: "5px 0" }}>{item.product_name}</td>
+                  <td style={{ textAlign: "center", padding: "5px 0" }}>
+                    {item.quantity}
                   </td>
-                  <td>{item.sell_price * item.quantity}</td>
+                  <td style={{ textAlign: "right", padding: "5px 0" }}>
+                    {item.sell_price?.toLocaleString()}{" "}
+                    {item.currency?.toUpperCase()}
+                  </td>
+                  <td style={{ textAlign: "right", padding: "5px 0" }}>
+                    {(item.sell_price * item.quantity)?.toLocaleString()}{" "}
+                    {item.currency?.toUpperCase()}
+                  </td>
                 </tr>
               ))}
-              <tr>
-                <td colSpan={3} style={{ border: "none" }}></td>
-                <td>
-                  <h1>Jami:</h1>
-                  {Number(totalAmount.toFixed(2)).toLocaleString()}
+            </tbody>
+            <tfoot>
+              <tr style={{ borderTop: "2px solid #000" }}>
+                <td
+                  colSpan={3}
+                  style={{
+                    textAlign: "right",
+                    padding: "10px 5px 5px 0",
+                    fontWeight: "bold",
+                  }}
+                >
+                  Jami:
+                </td>
+                <td
+                  style={{
+                    textAlign: "right",
+                    padding: "10px 0 5px 0",
+                    fontWeight: "bold",
+                    fontSize: "13px",
+                  }}
+                >
+                  {Number(totalAmount.toFixed(2)).toLocaleString()}{" "}
+                  {currency?.toUpperCase()}
                 </td>
               </tr>
-            </tbody>
+            </tfoot>
           </table>
+
+          <p
+            style={{
+              textAlign: "center",
+              fontSize: "9px",
+              marginTop: 15,
+              fontStyle: "italic",
+            }}
+          >
+            Xaridingiz uchun rahmat!
+          </p>
         </div>
       </Modal>
 
@@ -1135,7 +1182,6 @@ export default function Kassa() {
         >
           Ustalar
         </Button>
-    
       </div>
 
       <Card

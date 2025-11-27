@@ -905,7 +905,7 @@ export default function Kassa() {
         title="To'lov cheki"
       >
         <div ref={receiptRef} style={{ width: "80mm", padding: 10 }}>
- <h1>ARZON QURULISH MOLLARI</h1>
+          <h1>ARZON QURULISH MOLLARI</h1>
           <p
             style={{
               textAlign: "center",
@@ -919,10 +919,7 @@ export default function Kassa() {
           <p
             id="tgqr_p"
             style={{ display: "flex", justifyContent: "space-around" }}
-          >
-            <img id="tgqr" src={instagram} alt="" />
-            <img id="tgqr" src={tg} alt="" />
-          </p>
+          ></p>
           <p>Sana: {moment().tz("Asia/Tashkent").format("DD.MM.YYYY HH:mm")}</p>
           <table style={{ width: "100%", fontSize: "12px" }}>
             <thead style={{ border: "0px solid #000" }}>
